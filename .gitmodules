@@ -7,3 +7,6 @@
 [submodule "lib/openzeppelin-foundry-upgrades"]
 	path = lib/openzeppelin-foundry-upgrades
 	url = https://github.com/OpenZeppelin/openzeppelin-foundry-upgrades
+[submodule "lib/managed_basis"]
+	path = lib/managed_basis
+	url = https://github.com/Logarithm-Labs/managed_basis
