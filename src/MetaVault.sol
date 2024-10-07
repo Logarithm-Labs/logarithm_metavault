@@ -4,7 +4,11 @@ pragma solidity ^0.8.0;
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
 import {ManagedVault} from "managed_basis/src/vault/ManagedVault.sol";
 
 import {ILogarithmVault} from "src/interfaces/ILogarithmVault.sol";
@@ -16,6 +20,17 @@ import {IWhitelistProvider} from "src/interfaces/IWhitelistProvider.sol";
 contract MetaVault is Initializable, ManagedVault {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
+    using SafeERC20 for IERC20;
+
+    struct WithdrawRequest {
+        uint256 requestedAssets;
+        uint256 cumulativeWithdrawAssets;
+        uint256 requestTimestamp;
+        address owner;
+        address receiver;
+        bool isClaimed;
+    }
+
     /*//////////////////////////////////////////////////////////////
                        NAMESPACED STORAGE LAYOUT
     //////////////////////////////////////////////////////////////*/
@@ -23,13 +38,17 @@ contract MetaVault is Initializable, ManagedVault {
     /// @custom:storage-location erc7201:logarithm.storage.MetaVault
     struct MetaVaultStorage {
         address whitelistProvider;
+        // allocation-related state
         uint256 claimableAssets;
-        uint256 assetsToClaim;
-        uint256 cumulativeWithdrawAssets;
-        uint256 processedWithdrawAssets;
         EnumerableSet.AddressSet allocatedVaults;
         EnumerableSet.AddressSet claimableVaults;
         mapping(address vault => EnumerableSet.Bytes32Set) allocationWithdrawKeys;
+        // user's withdraw related state
+        uint256 assetsToClaim;
+        uint256 cumulativeWithdrawAssets;
+        uint256 processedWithdrawAssets;
+        mapping(address => uint256) nonces;
+        mapping(bytes32 withdrawKey => WithdrawRequest) withdrawRequests;
     }
 
     // keccak256(abi.encode(uint256(keccak256("logarithm.storage.MetaVault")) - 1)) & ~bytes32(uint256(0xff))
@@ -46,12 +65,19 @@ contract MetaVault is Initializable, ManagedVault {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
+    event WithdrawRequested(
+        address indexed caller, address indexed receiver, address indexed owner, bytes32 withdrawKey, uint256 assets
+    );
+
+    event Claimed(address indexed receiver, address indexed owner, bytes32 indexed withdrawKey, uint256 assets);
+
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
     error MV__InvalidParamLength();
     error MV__InvalidTargetAllocation();
+    error MV__NotClaimable();
 
     /*//////////////////////////////////////////////////////////////
                              INITIALIZATION
@@ -67,6 +93,75 @@ contract MetaVault is Initializable, ManagedVault {
         __ManagedVault_init(owner_, asset_, name_, symbol_);
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         $.whitelistProvider = whitelistProvider_;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                               USER LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    /// @inheritdoc ERC4626Upgradeable
+    function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
+        internal
+        virtual
+        override
+    {
+        // _harvestPerformanceFeeShares(_feeRecipient);
+
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+
+        if (caller != owner) {
+            _spendAllowance(owner, caller, shares);
+        }
+
+        // If _asset is ERC777, `transfer` can trigger a reentrancy AFTER the transfer happens through the
+        // `tokensReceived` hook. On the other hand, the `tokensToSend` hook, that is triggered before the transfer,
+        // calls the vault, which is assumed not malicious.
+        //
+        // Conclusion: we need to do the transfer after the burn so that any reentrancy would happen after the
+        // shares are burned and after the assets are transferred, which is a valid state.
+        _burn(owner, shares);
+
+        uint256 _idleAssets = idleAssets();
+        if (_idleAssets >= assets) {
+            IERC20(asset()).safeTransfer(receiver, assets);
+        } else {
+            // lock idle assets to claim
+            $.assetsToClaim += _idleAssets;
+
+            uint256 withdrawAssets = assets - _idleAssets;
+            uint256 _cumulativeWithdrawAssets = cumulativeWithdrawAssets();
+            _cumulativeWithdrawAssets += withdrawAssets;
+            $.cumulativeWithdrawAssets = _cumulativeWithdrawAssets;
+
+            bytes32 withdrawKey = getWithdrawKey(owner, _useNonce(owner));
+            $.withdrawRequests[withdrawKey] = WithdrawRequest({
+                requestedAssets: assets,
+                cumulativeWithdrawAssets: _cumulativeWithdrawAssets,
+                requestTimestamp: block.timestamp,
+                owner: owner,
+                receiver: receiver,
+                isClaimed: false
+            });
+
+            emit WithdrawRequested(caller, receiver, owner, withdrawKey, assets);
+        }
+
+        emit Withdraw(caller, receiver, owner, assets, shares);
+    }
+
+    /// @notice Claim withdrawable assets
+    function claim(bytes32 withdrawKey) public returns (uint256) {
+        if (!isClaimable(withdrawKey)) {
+            revert MV__NotClaimable();
+        }
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        $.withdrawRequests[withdrawKey].isClaimed = true;
+
+        WithdrawRequest memory withdrawRequest = withdrawRequests(withdrawKey);
+        IERC20(asset()).safeTransfer(withdrawRequest.receiver, withdrawRequest.requestedAssets);
+
+        emit Claimed(withdrawRequest.receiver, withdrawRequest.owner, withdrawKey, withdrawRequest.requestedAssets);
+        return withdrawRequest.requestedAssets;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -118,8 +213,8 @@ contract MetaVault is Initializable, ManagedVault {
 
     /// @notice Claim assets from logarithm vaults
     ///
-    /// @dev Decentralized function that can be called by anyone
-    function claimAllocations() external {
+    /// @dev A decentralized function that can be called by anyone
+    function claimAllocations() public {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         uint256 len = $.claimableVaults.length();
         uint256 totalClaimedAssets;
@@ -159,6 +254,35 @@ contract MetaVault is Initializable, ManagedVault {
         }
     }
 
+    /// @notice Process idle assets for withdraw requests
+    ///
+    /// @dev A decentralized function that can be called by anyone
+    function processWithdrawRequests() public {
+        uint256 assetsToBeProcessed = pendingWithdrawAssets();
+        if (assetsToBeProcessed > 0) {
+            MetaVaultStorage storage $ = _getMetaVaultStorage();
+            uint256 _idleAssets = idleAssets();
+            if (_idleAssets < assetsToBeProcessed) {
+                // process all idleAssets
+                $.processedWithdrawAssets += _idleAssets;
+                $.assetsToClaim += _idleAssets;
+            } else {
+                // process only part of idleAssets as the assetsToBeProcessed
+                $.processedWithdrawAssets += assetsToBeProcessed;
+                $.assetsToClaim += assetsToBeProcessed;
+            }
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                         PUBLIC VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @inheritdoc IERC4626
+    function totalAssets() public view override returns (uint256) {
+        return idleAssets() + allocatedAssets() + claimableAssets();
+    }
+
     /// @notice Assets that are free to allocate
     function idleAssets() public view returns (uint256) {
         return IERC20(asset()).balanceOf(address(this)) - assetsToClaim();
@@ -179,11 +303,20 @@ contract MetaVault is Initializable, ManagedVault {
         return assets;
     }
 
-    function pendingWithdrawAssets() public view returns (uint256) {}
+    /// @notice Assets that are requested to be withdraw
+    function pendingWithdrawAssets() public view returns (uint256) {
+        return cumulativeWithdrawAssets() - processedWithdrawAssets();
+    }
 
-    /// @inheritdoc IERC4626
-    function totalAssets() public view override returns (uint256) {
-        return idleAssets() + allocatedAssets() + claimableAssets();
+    /// @notice calculate withdraw request key given a user and his nonce
+    function getWithdrawKey(address user, uint256 nonce) public view returns (bytes32) {
+        return keccak256(abi.encodePacked(address(this), user, nonce));
+    }
+
+    function isClaimable(bytes32 withdrawKey) public view returns (bool) {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        WithdrawRequest memory withdrawRequest = $.withdrawRequests[withdrawKey];
+        return !withdrawRequest.isClaimed && withdrawRequest.cumulativeWithdrawAssets <= processedWithdrawAssets();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -256,6 +389,17 @@ contract MetaVault is Initializable, ManagedVault {
         }
     }
 
+    /// @dev use nonce for each user and increase it
+    function _useNonce(address user) internal returns (uint256) {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        // For each vault, the nonce has an initial value of 0, can only be incremented by one, and cannot be
+        // decremented or reset. This guarantees that the nonce never overflows.
+        unchecked {
+            // It is important to do x++ and not ++x here.
+            return $.nonces[user]++;
+        }
+    }
+
     /*//////////////////////////////////////////////////////////////
                             STORAGE GETTERS
     //////////////////////////////////////////////////////////////*/
@@ -288,5 +432,25 @@ contract MetaVault is Initializable, ManagedVault {
     function claimableVaults() public view returns (address[] memory) {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         return $.claimableVaults.values();
+    }
+
+    function cumulativeWithdrawAssets() public view returns (uint256) {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        return $.cumulativeWithdrawAssets;
+    }
+
+    function processedWithdrawAssets() public view returns (uint256) {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        return $.processedWithdrawAssets;
+    }
+
+    function nonces(address user) public view returns (uint256) {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        return $.nonces[user];
+    }
+
+    function withdrawRequests(bytes32 withdrawKey) public view returns (WithdrawRequest memory) {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        return $.withdrawRequests[withdrawKey];
     }
 }
