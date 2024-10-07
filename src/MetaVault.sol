@@ -25,6 +25,8 @@ contract MetaVault is Initializable, ManagedVault {
         address whitelistProvider;
         uint256 claimableAssets;
         uint256 assetsToClaim;
+        uint256 cumulativeWithdrawAssets;
+        uint256 processedWithdrawAssets;
         EnumerableSet.AddressSet allocatedVaults;
         EnumerableSet.AddressSet claimableVaults;
         mapping(address vault => EnumerableSet.Bytes32Set) allocationWithdrawKeys;
@@ -116,7 +118,7 @@ contract MetaVault is Initializable, ManagedVault {
 
     /// @notice Claim assets from logarithm vaults
     ///
-    /// @dev decentralized function that can be called by anyone
+    /// @dev Decentralized function that can be called by anyone
     function claimAllocations() external {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         uint256 len = $.claimableVaults.length();
@@ -176,6 +178,8 @@ contract MetaVault is Initializable, ManagedVault {
         }
         return assets;
     }
+
+    function pendingWithdrawAssets() public view returns (uint256) {}
 
     /// @inheritdoc IERC4626
     function totalAssets() public view override returns (uint256) {
