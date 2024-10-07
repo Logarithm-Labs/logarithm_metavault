@@ -289,7 +289,7 @@ contract MetaVault is Initializable, ManagedVault {
 
     /// @inheritdoc IERC4626
     function totalAssets() public view override returns (uint256) {
-        return idleAssets() + allocatedAssets() + claimableAssets();
+        return idleAssets() + allocatedAssets() + claimableAssets() - pendingWithdrawAssets();
     }
 
     /// @notice Assets that are free to allocate
