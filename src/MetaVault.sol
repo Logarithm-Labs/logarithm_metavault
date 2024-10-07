@@ -78,6 +78,7 @@ contract MetaVault is Initializable, ManagedVault {
     error MV__InvalidParamLength();
     error MV__InvalidTargetAllocation();
     error MV__NotClaimable();
+    error MV__OverAllocation();
 
     /*//////////////////////////////////////////////////////////////
                              INITIALIZATION
@@ -176,6 +177,7 @@ contract MetaVault is Initializable, ManagedVault {
     /// @param assets Array of unit values that represents the asset amount to deposit
     function allocate(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
         uint256 len = _validateInputParams(targets, assets);
+        uint256 assetsAllocated;
         for (uint256 i; i < len;) {
             address target = targets[i];
             _validateTarget(target);
@@ -184,10 +186,17 @@ contract MetaVault is Initializable, ManagedVault {
                 IERC20(asset()).approve(target, assetAmount);
                 IERC4626(target).deposit(assetAmount, address(this));
                 _getMetaVaultStorage().allocatedVaults.add(target);
+                unchecked {
+                    assetsAllocated += assetAmount;
+                }
             }
             unchecked {
                 ++i;
             }
+        }
+
+        if (assetsAllocated > idleAssets()) {
+            revert MV__OverAllocation();
         }
     }
 
