@@ -22,6 +22,7 @@ contract MetaVault is Initializable, ManagedVault {
     struct MetaVaultStorage {
         address whitelistProvider;
         EnumerableSet.AddressSet allocatedVaults;
+        EnumerableSet.AddressSet claimableVaults;
     }
 
     // keccak256(abi.encode(uint256(keccak256("logarithm.storage.MetaVault")) - 1)) & ~bytes32(uint256(0xff))
@@ -70,25 +71,16 @@ contract MetaVault is Initializable, ManagedVault {
     /// @dev targets should be the addresses of logarithm vaults
     ///
     /// @param targets Address array of the target vaults that are whitelisted
-    ///
     /// @param assets Array of unit values that represents the asset amount to deposit
     function allocate(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
-        uint256 len = targets.length;
-        if (assets.length != len) {
-            revert MV__InvalidParamLength();
-        }
+        uint256 len = _validateInputParams(targets, assets);
         for (uint256 i; i < len;) {
             address target = targets[i];
-            address _whitelistProvider = whitelistProvider();
-            if (_whitelistProvider != address(0)) {
-                if (!IWhitelistProvider(_whitelistProvider).isWhitelisted(target)) {
-                    revert MV__InvalidTargetAllocation();
-                }
-            }
-            uint256 _asset = assets[i];
-            if (_asset > 0) {
-                IERC20(asset()).approve(target, _asset);
-                IERC4626(target).deposit(_asset, address(this));
+            _validateTarget(target);
+            uint256 assetAmount = assets[i];
+            if (assetAmount > 0) {
+                IERC20(asset()).approve(target, assetAmount);
+                IERC4626(target).deposit(assetAmount, address(this));
                 _getMetaVaultStorage().allocatedVaults.add(target);
             }
             unchecked {
@@ -102,29 +94,9 @@ contract MetaVault is Initializable, ManagedVault {
     /// @dev targets should be the addresses of logarithm vaults
     ///
     /// @param targets Address array of the target vaults that are whitelisted
-    ///
     /// @param assets Array of unit values that represents the asset amount to withdraw
     function withdrawAllocations(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
-        uint256 len = targets.length;
-        if (assets.length != len) {
-            revert MV__InvalidParamLength();
-        }
-        for (uint256 i; i < len;) {
-            address target = targets[i];
-            address _whitelistProvider = whitelistProvider();
-            if (_whitelistProvider != address(0)) {
-                if (!IWhitelistProvider(_whitelistProvider).isWhitelisted(target)) {
-                    revert MV__InvalidTargetAllocation();
-                }
-            }
-            uint256 _asset = assets[i];
-            if (_asset > 0) {
-                IERC4626(target).withdraw(_asset, address(this), address(this));
-            }
-            unchecked {
-                ++i;
-            }
-        }
+        _withdrawAllocations(targets, assets, false);
     }
 
     /// @notice Redeem shares from the logarithm vaults
@@ -132,27 +104,63 @@ contract MetaVault is Initializable, ManagedVault {
     /// @dev targets should be the addresses of logarithm vaults
     ///
     /// @param targets Address array of the target vaults that are whitelisted
-    ///
     /// @param shares Array of unit values that represents the share amount to redeem
     function redeemAllocations(address[] calldata targets, uint256[] calldata shares) external onlyOwner {
-        uint256 len = targets.length;
-        if (shares.length != len) {
-            revert MV__InvalidParamLength();
-        }
+        _withdrawAllocations(targets, shares, true);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           INTERNAL FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Withdraw assets from the targets
+    function _withdrawAllocations(address[] calldata targets, uint256[] calldata amounts, bool isRedeem) internal {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        uint256 len = _validateInputParams(targets, amounts);
         for (uint256 i; i < len;) {
             address target = targets[i];
-            address _whitelistProvider = whitelistProvider();
-            if (_whitelistProvider != address(0)) {
-                if (!IWhitelistProvider(_whitelistProvider).isWhitelisted(target)) {
-                    revert MV__InvalidTargetAllocation();
+            _validateTarget(target);
+            uint256 amount = amounts[i];
+            if (amount > 0) {
+                uint256 balanceBefore = IERC20(asset()).balanceOf(address(this));
+                if (isRedeem) {
+                    IERC4626(target).redeem(amount, address(this), address(this));
+                } else {
+                    IERC4626(target).withdraw(amount, address(this), address(this));
                 }
+                uint256 balanceAfter = IERC20(asset()).balanceOf(address(this));
+                if (balanceBefore == balanceAfter) $.claimableVaults.add(target);
             }
-            uint256 _share = shares[i];
-            if (_share > 0) {
-                IERC4626(target).redeem(_share, address(this), address(this));
+            if (IERC4626(target).balanceOf(address(this)) == 0) {
+                $.allocatedVaults.remove(target);
             }
             unchecked {
                 ++i;
+            }
+        }
+    }
+
+    /// @notice validate params arrays' length
+    ///
+    /// @return length of array
+    function _validateInputParams(address[] calldata targets, uint256[] calldata values)
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 len = targets.length;
+        if (values.length != len) {
+            revert MV__InvalidParamLength();
+        }
+        return len;
+    }
+
+    /// @notice validate if target is whitelisted
+    function _validateTarget(address target) internal view {
+        address _whitelistProvider = whitelistProvider();
+        if (_whitelistProvider != address(0)) {
+            if (!IWhitelistProvider(_whitelistProvider).isWhitelisted(target)) {
+                revert MV__InvalidTargetAllocation();
             }
         }
     }
@@ -171,5 +179,11 @@ contract MetaVault is Initializable, ManagedVault {
     function allocatedVaults() public view returns (address[] memory) {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         return $.allocatedVaults.values();
+    }
+
+    /// @notice Array of claimable vaults' addresses
+    function claimableVaults() public view returns (address[] memory) {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        return $.claimableVaults.values();
     }
 }

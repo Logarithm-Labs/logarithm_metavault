@@ -62,11 +62,13 @@ contract WhitelistProvider is UUPSUpgradeable, OwnableUpgradeable {
                             ADMIN FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Owner function to whitelist a vault
     function whitelist(address vault) public onlyOwner nonZeroAddress(vault) {
         WhitelistProviderStorage storage $ = _getWhitelistProviderStorage();
         $.whitelistSet.add(vault);
     }
 
+    /// @notice Owner function to remove a vault from whitelists
     function removeWhitelist(address vault) public onlyOwner nonZeroAddress(vault) {
         WhitelistProviderStorage storage $ = _getWhitelistProviderStorage();
         $.whitelistSet.remove(vault);
@@ -76,11 +78,13 @@ contract WhitelistProvider is UUPSUpgradeable, OwnableUpgradeable {
                              PUBLIC VIEWERS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Address array of whitelisted vaults
     function whitelistedVaults() public view returns (address[] memory) {
         WhitelistProviderStorage storage $ = _getWhitelistProviderStorage();
         return $.whitelistSet.values();
     }
 
+    /// @notice True if an inputted vault is whitelisted
     function isWhitelisted(address vault) public view returns (bool) {
         WhitelistProviderStorage storage $ = _getWhitelistProviderStorage();
         return $.whitelistSet.contains(vault);

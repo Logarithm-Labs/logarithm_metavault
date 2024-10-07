@@ -51,9 +51,7 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
     ///
     /// @param upgradeable If true, the proxy will be an instance of the BeaconProxy. If false, a minimal proxy
     /// will be deployed
-    ///
     /// @param name Vault name
-    ///
     /// @param symbol Vault symbol
     ///
     /// @return The address of the new proxy
@@ -126,7 +124,6 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
     /// @notice Get a slice of the deployed proxies array
     ///
     /// @param start Start index of the slice
-    ///
     /// @param end End index of the slice
     ///
     /// @return list An array containing the slice of the proxy list
