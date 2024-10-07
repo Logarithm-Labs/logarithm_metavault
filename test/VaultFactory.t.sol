@@ -13,15 +13,15 @@ contract VaultFactoryTest is Test {
 
     function setUp() public {
         vaultImpl = address(new MetaVault());
-        factory = new VaultFactory(vaultImpl, address(this));
+        factory = new VaultFactory(address(0), vaultImpl, address(this));
     }
 
-    function test_impl() public {
+    function test_impl() public view {
         assertEq(factory.implementation(), vaultImpl);
     }
 
     function test_createVault_noneUpgradable() public {
-        address proxy = factory.createVault(false, "Test Vault", "TV");
+        address proxy = factory.createVault(false, address(0), "Test Vault", "TV");
         string memory name = IERC20(proxy).name();
         string memory symbol = IERC20(proxy).symbol();
         assertEq(name, "Test Vault");
@@ -29,7 +29,7 @@ contract VaultFactoryTest is Test {
     }
 
     function test_createVault_upgradable() public {
-        address proxy = factory.createVault(true, "Test Vault", "TV");
+        address proxy = factory.createVault(true, address(0), "Test Vault", "TV");
         string memory name = IERC20(proxy).name();
         string memory symbol = IERC20(proxy).symbol();
         assertEq(name, "Test Vault");
@@ -37,9 +37,9 @@ contract VaultFactoryTest is Test {
     }
 
     function test_createVault_multiple() public {
-        address proxy_1 = factory.createVault(false, "Test Vault 1", "TV 1");
-        address proxy_2 = factory.createVault(true, "Test Vault 2", "TV 2");
-        address proxy_3 = factory.createVault(false, "Test Vault 3", "TV 3");
+        address proxy_1 = factory.createVault(false, address(0), "Test Vault 1", "TV 1");
+        address proxy_2 = factory.createVault(true, address(0), "Test Vault 2", "TV 2");
+        address proxy_3 = factory.createVault(false, address(0), "Test Vault 3", "TV 3");
         uint256 len = factory.getProxyListLength();
         assertEq(len, 3);
         assertFalse(factory.isProxy(address(this)));
