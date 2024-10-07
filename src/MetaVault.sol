@@ -7,6 +7,7 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ManagedVault} from "managed_basis/src/vault/ManagedVault.sol";
 
+import {ILogarithmVault} from "src/interfaces/ILogarithmVault.sol";
 import {IWhitelistProvider} from "src/interfaces/IWhitelistProvider.sol";
 
 /// @title MetaVault
@@ -14,6 +15,7 @@ import {IWhitelistProvider} from "src/interfaces/IWhitelistProvider.sol";
 /// @notice Vault implementation that is used by vault factory
 contract MetaVault is Initializable, ManagedVault {
     using EnumerableSet for EnumerableSet.AddressSet;
+    using EnumerableSet for EnumerableSet.Bytes32Set;
     /*//////////////////////////////////////////////////////////////
                        NAMESPACED STORAGE LAYOUT
     //////////////////////////////////////////////////////////////*/
@@ -21,8 +23,11 @@ contract MetaVault is Initializable, ManagedVault {
     /// @custom:storage-location erc7201:logarithm.storage.MetaVault
     struct MetaVaultStorage {
         address whitelistProvider;
+        uint256 claimableAssets;
+        uint256 assetsToClaim;
         EnumerableSet.AddressSet allocatedVaults;
         EnumerableSet.AddressSet claimableVaults;
+        mapping(address vault => EnumerableSet.Bytes32Set) allocationWithdrawKeys;
     }
 
     // keccak256(abi.encode(uint256(keccak256("logarithm.storage.MetaVault")) - 1)) & ~bytes32(uint256(0xff))
@@ -109,6 +114,31 @@ contract MetaVault is Initializable, ManagedVault {
         _withdrawAllocations(targets, shares, true);
     }
 
+    /// @notice Assets that are free to allocate
+    function idleAssets() public view returns (uint256) {
+        return IERC20(asset()).balanceOf(address(this)) - assetsToClaim();
+    }
+
+    /// @notice Assets that are allocated
+    function allocatedAssets() public view returns (uint256) {
+        address[] memory _allocatedVaults = allocatedVaults();
+        uint256 len = _allocatedVaults.length;
+        uint256 assets;
+        for (uint256 i; i < len;) {
+            address allocatedVault = _allocatedVaults[i];
+            uint256 shares = IERC4626(allocatedVault).balanceOf(address(this));
+            unchecked {
+                assets += IERC4626(allocatedVault).previewRedeem(shares);
+            }
+        }
+        return assets;
+    }
+
+    /// @inheritdoc IERC4626
+    function totalAssets() public view override returns (uint256) {
+        return idleAssets() + allocatedAssets() + claimableAssets();
+    }
+
     /*//////////////////////////////////////////////////////////////
                            INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -117,19 +147,30 @@ contract MetaVault is Initializable, ManagedVault {
     function _withdrawAllocations(address[] calldata targets, uint256[] calldata amounts, bool isRedeem) internal {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         uint256 len = _validateInputParams(targets, amounts);
+        uint256 requestedAssets;
         for (uint256 i; i < len;) {
             address target = targets[i];
             _validateTarget(target);
             uint256 amount = amounts[i];
             if (amount > 0) {
                 uint256 balanceBefore = IERC20(asset()).balanceOf(address(this));
+                uint256 assets;
                 if (isRedeem) {
-                    IERC4626(target).redeem(amount, address(this), address(this));
+                    assets = IERC4626(target).redeem(amount, address(this), address(this));
                 } else {
+                    assets = amount;
                     IERC4626(target).withdraw(amount, address(this), address(this));
                 }
                 uint256 balanceAfter = IERC20(asset()).balanceOf(address(this));
-                if (balanceBefore == balanceAfter) $.claimableVaults.add(target);
+                if (balanceBefore == balanceAfter) {
+                    unchecked {
+                        requestedAssets += assets;
+                    }
+                    uint256 nonce = ILogarithmVault(target).nonces(address(this));
+                    bytes32 withdrawKey = ILogarithmVault(target).getWithdrawKey(address(this), nonce);
+                    $.claimableVaults.add(target);
+                    $.allocationWithdrawKeys[target].add(withdrawKey);
+                }
             }
             if (IERC4626(target).balanceOf(address(this)) == 0) {
                 $.allocatedVaults.remove(target);
@@ -137,6 +178,49 @@ contract MetaVault is Initializable, ManagedVault {
             unchecked {
                 ++i;
             }
+        }
+        if (requestedAssets > 0) {
+            $.claimableAssets += requestedAssets;
+        }
+    }
+
+    function claimAllocations() external {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        uint256 len = $.claimableVaults.length();
+        uint256 totalClaimedAssets;
+        for (uint256 i; i < len;) {
+            address claimableVault = $.claimableVaults.at(i);
+            uint256 keyLen = $.allocationWithdrawKeys[claimableVault].length();
+            bool allClaimed = true;
+            for (uint256 j; j < keyLen;) {
+                bytes32 withdrawKey = $.allocationWithdrawKeys[claimableVault].at(j);
+                if (ILogarithmVault(claimableVault).isClaimable(withdrawKey)) {
+                    uint256 claimedAssets = ILogarithmVault(claimableVault).claim(withdrawKey);
+                    $.allocationWithdrawKeys[claimableVault].remove(withdrawKey);
+                    unchecked {
+                        totalClaimedAssets += claimedAssets;
+                    }
+                } else {
+                    allClaimed = false;
+                }
+                unchecked {
+                    ++j;
+                }
+            }
+
+            if (allClaimed) {
+                $.claimableVaults.remove(claimableVault);
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        if (totalClaimedAssets > 0) {
+            uint256 _claimableAssets = claimableAssets();
+            uint256 remainingAssets = _claimableAssets > totalClaimedAssets ? _claimableAssets - totalClaimedAssets : 0;
+            $.claimableAssets = remainingAssets;
         }
     }
 
@@ -173,6 +257,18 @@ contract MetaVault is Initializable, ManagedVault {
     function whitelistProvider() public view returns (address) {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         return $.whitelistProvider;
+    }
+
+    /// @notice Assets that are requested to claim from logarithm vaults
+    function claimableAssets() public view returns (uint256) {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        return $.claimableAssets;
+    }
+
+    /// @notice Assets that are reserved for users' claim
+    function assetsToClaim() public view returns (uint256) {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        return $.assetsToClaim;
     }
 
     /// @notice Array of allocated vaults' addresses
