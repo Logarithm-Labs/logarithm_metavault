@@ -114,6 +114,49 @@ contract MetaVault is Initializable, ManagedVault {
         _withdrawAllocations(targets, shares, true);
     }
 
+    /// @notice Claim assets from logarithm vaults
+    ///
+    /// @dev decentralized function that can be called by anyone
+    function claimAllocations() external {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        uint256 len = $.claimableVaults.length();
+        uint256 totalClaimedAssets;
+        for (uint256 i; i < len;) {
+            address claimableVault = $.claimableVaults.at(i);
+            uint256 keyLen = $.allocationWithdrawKeys[claimableVault].length();
+            bool allClaimed = true;
+            for (uint256 j; j < keyLen;) {
+                bytes32 withdrawKey = $.allocationWithdrawKeys[claimableVault].at(j);
+                if (ILogarithmVault(claimableVault).isClaimable(withdrawKey)) {
+                    uint256 claimedAssets = ILogarithmVault(claimableVault).claim(withdrawKey);
+                    $.allocationWithdrawKeys[claimableVault].remove(withdrawKey);
+                    unchecked {
+                        totalClaimedAssets += claimedAssets;
+                    }
+                } else {
+                    allClaimed = false;
+                }
+                unchecked {
+                    ++j;
+                }
+            }
+
+            if (allClaimed) {
+                $.claimableVaults.remove(claimableVault);
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        if (totalClaimedAssets > 0) {
+            uint256 _claimableAssets = claimableAssets();
+            uint256 remainingAssets = _claimableAssets > totalClaimedAssets ? _claimableAssets - totalClaimedAssets : 0;
+            $.claimableAssets = remainingAssets;
+        }
+    }
+
     /// @notice Assets that are free to allocate
     function idleAssets() public view returns (uint256) {
         return IERC20(asset()).balanceOf(address(this)) - assetsToClaim();
@@ -181,46 +224,6 @@ contract MetaVault is Initializable, ManagedVault {
         }
         if (requestedAssets > 0) {
             $.claimableAssets += requestedAssets;
-        }
-    }
-
-    function claimAllocations() external {
-        MetaVaultStorage storage $ = _getMetaVaultStorage();
-        uint256 len = $.claimableVaults.length();
-        uint256 totalClaimedAssets;
-        for (uint256 i; i < len;) {
-            address claimableVault = $.claimableVaults.at(i);
-            uint256 keyLen = $.allocationWithdrawKeys[claimableVault].length();
-            bool allClaimed = true;
-            for (uint256 j; j < keyLen;) {
-                bytes32 withdrawKey = $.allocationWithdrawKeys[claimableVault].at(j);
-                if (ILogarithmVault(claimableVault).isClaimable(withdrawKey)) {
-                    uint256 claimedAssets = ILogarithmVault(claimableVault).claim(withdrawKey);
-                    $.allocationWithdrawKeys[claimableVault].remove(withdrawKey);
-                    unchecked {
-                        totalClaimedAssets += claimedAssets;
-                    }
-                } else {
-                    allClaimed = false;
-                }
-                unchecked {
-                    ++j;
-                }
-            }
-
-            if (allClaimed) {
-                $.claimableVaults.remove(claimableVault);
-            }
-
-            unchecked {
-                ++i;
-            }
-        }
-
-        if (totalClaimedAssets > 0) {
-            uint256 _claimableAssets = claimableAssets();
-            uint256 remainingAssets = _claimableAssets > totalClaimedAssets ? _claimableAssets - totalClaimedAssets : 0;
-            $.claimableAssets = remainingAssets;
         }
     }
 
