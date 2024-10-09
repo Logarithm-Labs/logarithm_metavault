@@ -32,6 +32,13 @@ contract WhitelistProvider is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    event VaultAdded(address indexed vault);
+    event VaultRemoved(address indexed vault);
+
+    /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
@@ -66,12 +73,14 @@ contract WhitelistProvider is UUPSUpgradeable, OwnableUpgradeable {
     function whitelist(address vault) public onlyOwner nonZeroAddress(vault) {
         WhitelistProviderStorage storage $ = _getWhitelistProviderStorage();
         $.whitelistSet.add(vault);
+        emit VaultAdded(vault);
     }
 
     /// @notice Owner function to remove a vault from whitelists
     function removeWhitelist(address vault) public onlyOwner nonZeroAddress(vault) {
         WhitelistProviderStorage storage $ = _getWhitelistProviderStorage();
         $.whitelistSet.remove(vault);
+        emit VaultRemoved(vault);
     }
 
     /*//////////////////////////////////////////////////////////////
