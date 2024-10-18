@@ -25,7 +25,7 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
         address implementation;
     }
 
-    /// @notice An address of the whitelist provider which whitelist only logarithm vaults
+    /// @notice An address of the register provider which register only logarithm vaults
     address public vaultRegistry;
 
     /// @notice A lookup for configurations of the proxy contracts deployed by the factory

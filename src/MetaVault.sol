@@ -173,7 +173,7 @@ contract MetaVault is Initializable, ManagedVault {
     ///
     /// @dev targets should be the addresses of logarithm vaults
     ///
-    /// @param targets Address array of the target vaults that are whitelisted
+    /// @param targets Address array of the target vaults that are registered
     /// @param assets Array of unit values that represents the asset amount to deposit
     function allocate(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
         uint256 len = _validateInputParams(targets, assets);
@@ -204,7 +204,7 @@ contract MetaVault is Initializable, ManagedVault {
     ///
     /// @dev targets should be the addresses of logarithm vaults
     ///
-    /// @param targets Address array of the target vaults that are whitelisted
+    /// @param targets Address array of the target vaults that are registered
     /// @param assets Array of unit values that represents the asset amount to withdraw
     function withdrawAllocations(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
         _withdrawAllocations(targets, assets, false);
@@ -214,7 +214,7 @@ contract MetaVault is Initializable, ManagedVault {
     ///
     /// @dev targets should be the addresses of logarithm vaults
     ///
-    /// @param targets Address array of the target vaults that are whitelisted
+    /// @param targets Address array of the target vaults that are registered
     /// @param shares Array of unit values that represents the share amount to redeem
     function redeemAllocations(address[] calldata targets, uint256[] calldata shares) external onlyOwner {
         _withdrawAllocations(targets, shares, true);
@@ -388,7 +388,7 @@ contract MetaVault is Initializable, ManagedVault {
         return len;
     }
 
-    /// @notice validate if target is whitelisted
+    /// @notice validate if target is registered
     function _validateTarget(address target) internal view {
         address _vaultRegistry = vaultRegistry();
         if (_vaultRegistry != address(0)) {

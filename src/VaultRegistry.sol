@@ -69,15 +69,15 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
                             ADMIN FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Owner function to whitelist a vault
-    function whitelist(address vault) public onlyOwner nonZeroAddress(vault) {
+    /// @notice Owner function to register a vault
+    function register(address vault) public onlyOwner nonZeroAddress(vault) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         $.registeredVaults.add(vault);
         emit VaultAdded(vault);
     }
 
-    /// @notice Owner function to remove a vault from whitelists
-    function removeWhitelist(address vault) public onlyOwner nonZeroAddress(vault) {
+    /// @notice Owner function to remove a vault from registers
+    function remove(address vault) public onlyOwner nonZeroAddress(vault) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         $.registeredVaults.remove(vault);
         emit VaultRemoved(vault);
@@ -87,13 +87,13 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
                              PUBLIC VIEWERS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Address array of whitelisted vaults
-    function whitelistedVaults() public view returns (address[] memory) {
+    /// @notice Address array of registered vaults
+    function registeredVaults() public view returns (address[] memory) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         return $.registeredVaults.values();
     }
 
-    /// @notice True if an inputted vault is whitelisted
+    /// @notice True if an inputted vault is registered
     function isRegistered(address vault) public view returns (bool) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         return $.registeredVaults.contains(vault);
