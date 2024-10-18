@@ -6,28 +6,28 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-/// @title WhitelistProvider
+/// @title VaultRegistry
 /// @author Logarithm Labs
-/// @notice Store whitelisted vaults that are allowed to use in meta vaults
-contract WhitelistProvider is UUPSUpgradeable, OwnableUpgradeable {
+/// @notice Store vaults that are allowed to use as targets in meta vaults
+contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     /*//////////////////////////////////////////////////////////////
                        NAMESPACED STORAGE LAYOUT
     //////////////////////////////////////////////////////////////*/
 
-    /// @custom:storage-location erc7201:logarithm.storage.WhitelistProvider
-    struct WhitelistProviderStorage {
-        EnumerableSet.AddressSet whitelistSet;
+    /// @custom:storage-location erc7201:logarithm.storage.VaultRegistry
+    struct VaultRegistryStorage {
+        EnumerableSet.AddressSet registeredVaults;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("logarithm.storage.WhitelistProvider")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant WhitelistProviderStorageLocation =
+    // keccak256(abi.encode(uint256(keccak256("logarithm.storage.VaultRegistry")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant VaultRegistryStorageLocation =
         0xeb8ff60d146ce7fa958a118578ef28883928c44fc7c24bb6e5d90448571b7b00;
 
-    function _getWhitelistProviderStorage() private pure returns (WhitelistProviderStorage storage $) {
+    function _getVaultRegistryStorage() private pure returns (VaultRegistryStorage storage $) {
         assembly {
-            $.slot := WhitelistProviderStorageLocation
+            $.slot := VaultRegistryStorageLocation
         }
     }
 
@@ -71,15 +71,15 @@ contract WhitelistProvider is UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice Owner function to whitelist a vault
     function whitelist(address vault) public onlyOwner nonZeroAddress(vault) {
-        WhitelistProviderStorage storage $ = _getWhitelistProviderStorage();
-        $.whitelistSet.add(vault);
+        VaultRegistryStorage storage $ = _getVaultRegistryStorage();
+        $.registeredVaults.add(vault);
         emit VaultAdded(vault);
     }
 
     /// @notice Owner function to remove a vault from whitelists
     function removeWhitelist(address vault) public onlyOwner nonZeroAddress(vault) {
-        WhitelistProviderStorage storage $ = _getWhitelistProviderStorage();
-        $.whitelistSet.remove(vault);
+        VaultRegistryStorage storage $ = _getVaultRegistryStorage();
+        $.registeredVaults.remove(vault);
         emit VaultRemoved(vault);
     }
 
@@ -89,13 +89,13 @@ contract WhitelistProvider is UUPSUpgradeable, OwnableUpgradeable {
 
     /// @notice Address array of whitelisted vaults
     function whitelistedVaults() public view returns (address[] memory) {
-        WhitelistProviderStorage storage $ = _getWhitelistProviderStorage();
-        return $.whitelistSet.values();
+        VaultRegistryStorage storage $ = _getVaultRegistryStorage();
+        return $.registeredVaults.values();
     }
 
     /// @notice True if an inputted vault is whitelisted
-    function isWhitelisted(address vault) public view returns (bool) {
-        WhitelistProviderStorage storage $ = _getWhitelistProviderStorage();
-        return $.whitelistSet.contains(vault);
+    function isRegistered(address vault) public view returns (bool) {
+        VaultRegistryStorage storage $ = _getVaultRegistryStorage();
+        return $.registeredVaults.contains(vault);
     }
 }

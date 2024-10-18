@@ -12,7 +12,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {ManagedVault} from "managed_basis/src/vault/ManagedVault.sol";
 
 import {ILogarithmVault} from "src/interfaces/ILogarithmVault.sol";
-import {IWhitelistProvider} from "src/interfaces/IWhitelistProvider.sol";
+import {IVaultRegistry} from "src/interfaces/IVaultRegistry.sol";
 
 /// @title MetaVault
 /// @author Logarithm Labs
@@ -37,7 +37,7 @@ contract MetaVault is Initializable, ManagedVault {
 
     /// @custom:storage-location erc7201:logarithm.storage.MetaVault
     struct MetaVaultStorage {
-        address whitelistProvider;
+        address vaultRegistry;
         // allocation-related state
         uint256 claimableAssets;
         EnumerableSet.AddressSet allocatedVaults;
@@ -85,7 +85,7 @@ contract MetaVault is Initializable, ManagedVault {
     //////////////////////////////////////////////////////////////*/
 
     function initialize(
-        address whitelistProvider_,
+        address vaultRegistry_,
         address owner_,
         address asset_,
         string calldata name_,
@@ -93,7 +93,7 @@ contract MetaVault is Initializable, ManagedVault {
     ) external initializer {
         __ManagedVault_init(owner_, asset_, name_, symbol_);
         MetaVaultStorage storage $ = _getMetaVaultStorage();
-        $.whitelistProvider = whitelistProvider_;
+        $.vaultRegistry = vaultRegistry_;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -390,9 +390,9 @@ contract MetaVault is Initializable, ManagedVault {
 
     /// @notice validate if target is whitelisted
     function _validateTarget(address target) internal view {
-        address _whitelistProvider = whitelistProvider();
-        if (_whitelistProvider != address(0)) {
-            if (!IWhitelistProvider(_whitelistProvider).isWhitelisted(target)) {
+        address _vaultRegistry = vaultRegistry();
+        if (_vaultRegistry != address(0)) {
+            if (!IVaultRegistry(_vaultRegistry).isRegistered(target)) {
                 revert MV__InvalidTargetAllocation();
             }
         }
@@ -413,10 +413,10 @@ contract MetaVault is Initializable, ManagedVault {
                             STORAGE GETTERS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Address for the whitelistProvider
-    function whitelistProvider() public view returns (address) {
+    /// @notice Address for the vaultRegistry
+    function vaultRegistry() public view returns (address) {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
-        return $.whitelistProvider;
+        return $.vaultRegistry;
     }
 
     /// @notice Assets that are requested to claim from logarithm vaults

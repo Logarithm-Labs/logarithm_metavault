@@ -26,7 +26,7 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
     }
 
     /// @notice An address of the whitelist provider which whitelist only logarithm vaults
-    address public whitelistProvider;
+    address public vaultRegistry;
 
     /// @notice A lookup for configurations of the proxy contracts deployed by the factory
     mapping(address proxy => ProxyConfig) internal proxyLookup;
@@ -41,10 +41,10 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
 
     error VF__BadQuery();
 
-    constructor(address whitelistProvider_, address implementation_, address initialOwner)
+    constructor(address vaultRegistry_, address implementation_, address initialOwner)
         UpgradeableBeacon(implementation_, initialOwner)
     {
-        whitelistProvider = whitelistProvider_;
+        vaultRegistry = vaultRegistry_;
     }
 
     /// @notice A permissionless function to deploy new proxies for meta vault
@@ -68,13 +68,13 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
                 new BeaconProxy(
                     address(this),
                     abi.encodeWithSelector(
-                        IMetaVault.initialize.selector, whitelistProvider, msg.sender, underlyingAsset, name, symbol
+                        IMetaVault.initialize.selector, vaultRegistry, msg.sender, underlyingAsset, name, symbol
                     )
                 )
             );
         } else {
             proxy = _implementation.clone();
-            IMetaVault(proxy).initialize(whitelistProvider, msg.sender, underlyingAsset, name, symbol);
+            IMetaVault(proxy).initialize(vaultRegistry, msg.sender, underlyingAsset, name, symbol);
         }
 
         proxyLookup[proxy] = ProxyConfig({upgradeable: upgradeable, implementation: _implementation});
