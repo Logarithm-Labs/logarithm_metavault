@@ -49,6 +49,7 @@ contract MetaVault is Initializable, ManagedVault {
         uint256 processedWithdrawAssets;
         mapping(address => uint256) nonces;
         mapping(bytes32 withdrawKey => WithdrawRequest) withdrawRequests;
+        bool shutdown;
     }
 
     // keccak256(abi.encode(uint256(keccak256("logarithm.storage.MetaVault")) - 1)) & ~bytes32(uint256(0xff))
@@ -79,6 +80,17 @@ contract MetaVault is Initializable, ManagedVault {
     error MV__InvalidTargetAllocation();
     error MV__NotClaimable();
     error MV__OverAllocation();
+    error MV__Shutdown();
+    error MV__InvalidCaller();
+
+    /*//////////////////////////////////////////////////////////////
+                               MODIFIERS
+    //////////////////////////////////////////////////////////////*/
+
+    modifier whenNotShutdown() {
+        _requireNotShutdown();
+        _;
+    }
 
     /*//////////////////////////////////////////////////////////////
                              INITIALIZATION
@@ -96,9 +108,23 @@ contract MetaVault is Initializable, ManagedVault {
         $.vaultRegistry = vaultRegistry_;
     }
 
+    function shutdown() external {
+        if (_msgSender() != vaultRegistry()) {
+            revert MV__InvalidCaller();
+        }
+        _getMetaVaultStorage().shutdown = true;
+    }
+
     /*//////////////////////////////////////////////////////////////
                                USER LOGIC
     //////////////////////////////////////////////////////////////*/
+
+    /// @inheritdoc ERC4626Upgradeable
+    function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal virtual override {
+        _requireNotShutdown();
+        _harvestPerformanceFeeShares(assets, shares, true);
+        super._deposit(caller, receiver, assets, shares);
+    }
 
     /// @inheritdoc ERC4626Upgradeable
     function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
@@ -106,7 +132,7 @@ contract MetaVault is Initializable, ManagedVault {
         virtual
         override
     {
-        // _harvestPerformanceFeeShares(_feeRecipient);
+        _harvestPerformanceFeeShares(assets, shares, false);
 
         MetaVaultStorage storage $ = _getMetaVaultStorage();
 
@@ -175,7 +201,7 @@ contract MetaVault is Initializable, ManagedVault {
     ///
     /// @param targets Address array of the target vaults that are registered
     /// @param assets Array of unit values that represents the asset amount to deposit
-    function allocate(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
+    function allocate(address[] calldata targets, uint256[] calldata assets) external onlyOwner whenNotShutdown {
         uint256 len = _validateInputParams(targets, assets);
         uint256 assetsAllocated;
         for (uint256 i; i < len;) {
@@ -409,6 +435,12 @@ contract MetaVault is Initializable, ManagedVault {
         }
     }
 
+    function _requireNotShutdown() internal view {
+        if (isShutdown()) {
+            revert MV__Shutdown();
+        }
+    }
+
     /*//////////////////////////////////////////////////////////////
                             STORAGE GETTERS
     //////////////////////////////////////////////////////////////*/
@@ -461,5 +493,10 @@ contract MetaVault is Initializable, ManagedVault {
     function withdrawRequests(bytes32 withdrawKey) public view returns (WithdrawRequest memory) {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         return $.withdrawRequests[withdrawKey];
+    }
+
+    function isShutdown() public view returns (bool) {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        return $.shutdown;
     }
 }
