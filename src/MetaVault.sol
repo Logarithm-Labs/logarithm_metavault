@@ -228,8 +228,8 @@ contract MetaVault is Initializable, ManagedVault {
     ///
     /// @param targets Address array of the target vaults that are registered
     /// @param assets Array of unit values that represents the asset amount to withdraw
-    function withdrawAllocations(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
-        _withdrawAllocations(targets, assets, false);
+    function allocationWithdraw(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
+        _allocationWithdraw(targets, assets, false);
     }
 
     /// @notice Redeem shares from the logarithm vaults
@@ -238,12 +238,12 @@ contract MetaVault is Initializable, ManagedVault {
     ///
     /// @param targets Address array of the target vaults that are registered
     /// @param shares Array of unit values that represents the share amount to redeem
-    function redeemAllocations(address[] calldata targets, uint256[] calldata shares) external onlyOwner {
-        _withdrawAllocations(targets, shares, true);
+    function allocationRedeem(address[] calldata targets, uint256[] calldata shares) external onlyOwner {
+        _allocationWithdraw(targets, shares, true);
     }
 
     /// @notice Withdraw assets from the targets
-    function _withdrawAllocations(address[] calldata targets, uint256[] calldata amounts, bool isRedeem) internal {
+    function _allocationWithdraw(address[] calldata targets, uint256[] calldata amounts, bool isRedeem) internal {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         uint256 len = _validateInputParams(targets, amounts);
         for (uint256 i; i < len;) {
