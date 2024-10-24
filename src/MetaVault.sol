@@ -147,28 +147,66 @@ contract MetaVault is Initializable, ManagedVault {
         // shares are burned and after the assets are transferred, which is a valid state.
         _burn(owner, shares);
 
-        if (idleAssets() >= assets) {
+        uint256 _idleAssets = idleAssets();
+        if (_idleAssets >= assets) {
             allocationClaim();
             IERC20(asset()).safeTransfer(receiver, assets);
         } else {
-            uint256 _cumulativeRequestedWithdrawalAssets = cumulativeRequestedWithdrawalAssets();
-            _cumulativeRequestedWithdrawalAssets += assets;
-            $.cumulativeRequestedWithdrawalAssets = _cumulativeRequestedWithdrawalAssets;
+            uint256 remainingAssets = _allocationWithdrawIdleAssets(assets - _idleAssets);
+            if (remainingAssets > 0) {
+                uint256 _cumulativeRequestedWithdrawalAssets = cumulativeRequestedWithdrawalAssets();
+                _cumulativeRequestedWithdrawalAssets += assets;
+                $.cumulativeRequestedWithdrawalAssets = _cumulativeRequestedWithdrawalAssets;
 
-            bytes32 withdrawKey = getWithdrawKey(owner, _useNonce(owner));
-            $.withdrawRequests[withdrawKey] = WithdrawRequest({
-                requestedAssets: assets,
-                cumulativeRequestedWithdrawalAssets: _cumulativeRequestedWithdrawalAssets,
-                requestTimestamp: block.timestamp,
-                owner: owner,
-                receiver: receiver,
-                isClaimed: false
-            });
+                bytes32 withdrawKey = getWithdrawKey(owner, _useNonce(owner));
+                $.withdrawRequests[withdrawKey] = WithdrawRequest({
+                    requestedAssets: assets,
+                    cumulativeRequestedWithdrawalAssets: _cumulativeRequestedWithdrawalAssets,
+                    requestTimestamp: block.timestamp,
+                    owner: owner,
+                    receiver: receiver,
+                    isClaimed: false
+                });
 
-            emit WithdrawRequested(caller, receiver, owner, withdrawKey, assets);
+                emit WithdrawRequested(caller, receiver, owner, withdrawKey, assets);
+            } else {
+                IERC20(asset()).safeTransfer(receiver, assets);
+            }
         }
 
         emit Withdraw(caller, receiver, owner, assets, shares);
+    }
+
+    /// @dev withdraw idle assets of the logarithm vault
+    ///
+    /// @return remaining assets
+    function _allocationWithdrawIdleAssets(uint256 assets) internal returns (uint256) {
+        address[] memory _allocatedVaults = allocatedVaults();
+        uint256 index = _allocatedVaults.length;
+        // withdraw in reversed order of allocatedVaults
+        while (index != 0 && assets != 0) {
+            address vault = _allocatedVaults[index - 1];
+            uint256 vaultIdleAssets = ILogarithmVault(vault).idleAssets();
+            if (vaultIdleAssets > 0) {
+                uint256 availableAssets = IERC4626(vault).previewRedeem(IERC4626(vault).balanceOf(address(this)));
+                // withdrawal assets should be the most minimum value of assets, vaultIdleAssets and availableAssets
+                uint256 withdrawAssets = assets;
+                if (withdrawAssets > vaultIdleAssets) {
+                    withdrawAssets = vaultIdleAssets;
+                }
+                if (withdrawAssets > availableAssets) {
+                    withdrawAssets = availableAssets;
+                }
+                IERC4626(vault).withdraw(withdrawAssets, address(this), address(this));
+                unchecked {
+                    assets -= withdrawAssets;
+                }
+            }
+            unchecked {
+                index -= 1;
+            }
+        }
+        return assets;
     }
 
     /// @notice Claim withdrawable assets
