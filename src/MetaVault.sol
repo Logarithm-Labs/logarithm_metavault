@@ -320,13 +320,15 @@ contract MetaVault is Initializable, ManagedVault {
     /// @dev A decentralized function that can be called by anyone
     function allocationClaim() public {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
-        uint256 len = $.claimableVaults.length();
+        address[] memory _claimableVaults = claimableVaults();
+        uint256 len = _claimableVaults.length;
         for (uint256 i; i < len;) {
-            address claimableVault = $.claimableVaults.at(i);
-            uint256 keyLen = $.allocationWithdrawKeys[claimableVault].length();
+            address claimableVault = _claimableVaults[i];
+            bytes32[] memory _allocationWithdrawKeys = allocationWithdrawKeys(claimableVault);
+            uint256 keyLen = _allocationWithdrawKeys.length;
             bool allClaimed = true;
             for (uint256 j; j < keyLen;) {
-                bytes32 withdrawKey = $.allocationWithdrawKeys[claimableVault].at(j);
+                bytes32 withdrawKey = _allocationWithdrawKeys[j];
                 if (ILogarithmVault(claimableVault).isClaimable(withdrawKey)) {
                     ILogarithmVault(claimableVault).claim(withdrawKey);
                     $.allocationWithdrawKeys[claimableVault].remove(withdrawKey);
