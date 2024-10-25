@@ -236,6 +236,7 @@ contract MetaVault is Initializable, ManagedVault {
     /// @param assets Array of unit values that represents the asset amount to deposit
     function allocate(address[] calldata targets, uint256[] calldata assets) external onlyOwner whenNotShutdown {
         allocationClaim();
+        uint256 _idleAssets = idleAssets();
         uint256 len = _validateInputParams(targets, assets);
         uint256 assetsAllocated;
         for (uint256 i; i < len;) {
@@ -255,7 +256,7 @@ contract MetaVault is Initializable, ManagedVault {
             }
         }
 
-        if (assetsAllocated > idleAssets()) {
+        if (assetsAllocated > _idleAssets) {
             revert MV__OverAllocation();
         }
     }
