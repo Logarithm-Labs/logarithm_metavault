@@ -301,7 +301,7 @@ contract MetaVault is Initializable, ManagedVault {
                 uint256 balanceAfter = IERC20(asset()).balanceOf(address(this));
                 if (balanceBefore == balanceAfter) {
                     uint256 nonce = ILogarithmVault(target).nonces(address(this));
-                    bytes32 withdrawKey = ILogarithmVault(target).getWithdrawKey(address(this), nonce);
+                    bytes32 withdrawKey = ILogarithmVault(target).getWithdrawKey(address(this), nonce - 1);
                     $.claimableVaults.add(target);
                     $.allocationWithdrawKeys[target].add(withdrawKey);
                 }
@@ -526,5 +526,10 @@ contract MetaVault is Initializable, ManagedVault {
     function isShutdown() public view returns (bool) {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         return $.shutdown;
+    }
+
+    function allocationWithdrawKeys(address vault) public view returns (bytes32[] memory) {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        return $.allocationWithdrawKeys[vault].values();
     }
 }
