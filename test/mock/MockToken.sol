@@ -13,4 +13,8 @@ contract MockToken is ERC20 {
     function burn(address account, uint256 value) public {
         _burn(account, value);
     }
+
+    function decimals() public pure override returns (uint8) {
+        return 6;
+    }
 }

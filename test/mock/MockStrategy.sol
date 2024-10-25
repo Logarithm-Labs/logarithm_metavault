@@ -16,12 +16,12 @@ contract MockStrategy {
     }
 
     function utilize(uint256 amount) public {
-        asset.transferFrom(address(vault), address(this), amount);
+        asset.burn(address(vault), amount);
         utilizedAssets += amount;
     }
 
     function deutilize(uint256 amount) public {
-        asset.transfer(address(vault), amount);
+        asset.mint(address(vault), amount);
         utilizedAssets -= amount;
         vault.processPendingWithdrawRequests();
     }
