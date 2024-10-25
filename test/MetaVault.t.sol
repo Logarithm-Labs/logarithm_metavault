@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {MockToken} from "test/mock/MockToken.sol";
 import {MockLogVault} from "test/mock/MockLogVault.sol";
+import {MockStrategy} from "test/mock/MockStrategy.sol";
 import {VaultRegistry} from "src/VaultRegistry.sol";
 import {MetaVault} from "src/MetaVault.sol";
 
@@ -14,17 +15,24 @@ contract MetaVaultTest is Test {
     address user = makeAddr("owner");
     MockToken asset;
     MockLogVault logVault_1;
+    MockStrategy strategy_1;
     MockLogVault logVault_2;
+    MockStrategy strategy_2;
 
     VaultRegistry registry;
     MetaVault vault;
 
     function setUp() public {
+        vm.startPrank(owner);
         asset = new MockToken();
         logVault_1 = new MockLogVault();
         logVault_1.initialize(owner, address(asset));
+        strategy_1 = new MockStrategy(address(asset), address(logVault_1));
+        logVault_1.setStrategy(address(strategy_1));
         logVault_2 = new MockLogVault();
         logVault_2.initialize(owner, address(asset));
+        strategy_2 = new MockStrategy(address(asset), address(logVault_2));
+        logVault_2.setStrategy(address(strategy_2));
 
         registry = new VaultRegistry();
         registry.initialize(owner);
@@ -59,6 +67,10 @@ contract MetaVaultTest is Test {
         vault.allocate(targets, amounts);
         assertEq(logVault_1.balanceOf(address(vault)), THOUSANDx6);
         assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6);
+        address[] memory allocatedVaults = vault.allocatedVaults();
+        assertEq(allocatedVaults[0], targets[0]);
+        assertEq(allocatedVaults[1], targets[1]);
+        assertEq(vault.totalAssets(), 100 * THOUSANDx6);
     }
 
     function test_revert_allocateWithUnregisteredTarget() public {

@@ -377,6 +377,7 @@ contract MetaVault is Initializable, ManagedVault {
             uint256 shares = IERC4626(allocatedVault).balanceOf(address(this));
             unchecked {
                 assets += IERC4626(allocatedVault).previewRedeem(shares);
+                ++i;
             }
         }
         return assets;
