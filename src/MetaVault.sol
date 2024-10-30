@@ -64,7 +64,7 @@ contract MetaVault is Initializable, ManagedVault {
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
-    // @review: I would add event on Allocated, AllocationWithdraw and Shutdown
+
     event WithdrawRequested(
         address indexed caller, address indexed receiver, address indexed owner, bytes32 withdrawKey, uint256 assets
     );
@@ -87,16 +87,6 @@ contract MetaVault is Initializable, ManagedVault {
     error MV__OverAllocation();
     error MV__Shutdown();
     error MV__InvalidCaller();
-
-    /*//////////////////////////////////////////////////////////////
-                               MODIFIERS
-    //////////////////////////////////////////////////////////////*/
-
-    // @review: we only use this modifier once, maybe it's better to inline it
-    modifier whenNotShutdown() {
-        _requireNotShutdown();
-        _;
-    }
 
     /*//////////////////////////////////////////////////////////////
                              INITIALIZATION
@@ -243,7 +233,8 @@ contract MetaVault is Initializable, ManagedVault {
     ///
     /// @param targets Address array of the target vaults that are registered
     /// @param assets Array of unit values that represents the asset amount to deposit
-    function allocate(address[] calldata targets, uint256[] calldata assets) external onlyOwner whenNotShutdown {
+    function allocate(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
+        _requireNotShutdown();
         allocationClaim();
         uint256 _idleAssets = idleAssets();
         uint256 len = _validateInputParams(targets, assets);
@@ -432,7 +423,6 @@ contract MetaVault is Initializable, ManagedVault {
         }
     }
 
-    // @review: Are we sure that underflow is not possible here?
     /// @notice Assets that are requested to be withdraw
     function pendingWithdrawalAssets() public view returns (uint256) {
         return cumulativeRequestedWithdrawalAssets() - cumulativeWithdrawnAssets();
