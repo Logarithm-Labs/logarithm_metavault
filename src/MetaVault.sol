@@ -73,7 +73,7 @@ contract MetaVault is Initializable, ManagedVault {
 
     event Shutdown();
 
-    event Allocated(address[] targets, uint256[] assets);
+    event Allocated(address indexed target, uint256 assets, uint256 shares);
 
     event AllocationWithdraw(address indexed target, uint256 assets, uint256 shares);
 
@@ -245,11 +245,12 @@ contract MetaVault is Initializable, ManagedVault {
             uint256 assetAmount = assets[i];
             if (assetAmount > 0) {
                 IERC20(asset()).approve(target, assetAmount);
-                IERC4626(target).deposit(assetAmount, address(this));
+                uint256 shares = IERC4626(target).deposit(assetAmount, address(this));
                 _getMetaVaultStorage().allocatedVaults.add(target);
                 unchecked {
                     assetsAllocated += assetAmount;
                 }
+                emit Allocated(target, assetAmount, shares);
             }
             unchecked {
                 ++i;
@@ -259,8 +260,6 @@ contract MetaVault is Initializable, ManagedVault {
         if (assetsAllocated > _idleAssets) {
             revert MV__OverAllocation();
         }
-
-        emit Allocated(targets, assets);
     }
 
     /// @notice Withdraw assets from the logarithm vaults
