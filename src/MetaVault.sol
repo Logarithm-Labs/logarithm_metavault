@@ -64,7 +64,7 @@ contract MetaVault is Initializable, ManagedVault {
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
-
+    // @review: I would add event on Allocated, AllocationWithdraw and Shutdown
     event WithdrawRequested(
         address indexed caller, address indexed receiver, address indexed owner, bytes32 withdrawKey, uint256 assets
     );
@@ -86,6 +86,7 @@ contract MetaVault is Initializable, ManagedVault {
                                MODIFIERS
     //////////////////////////////////////////////////////////////*/
 
+    // @review: we only use this modifier once, maybe it's better to inline it
     modifier whenNotShutdown() {
         _requireNotShutdown();
         _;
@@ -189,6 +190,9 @@ contract MetaVault is Initializable, ManagedVault {
             uint256 vaultIdleAssets = ILogarithmVault(vault).idleAssets();
             if (vaultIdleAssets > 0) {
                 uint256 availableAssets = IERC4626(vault).previewRedeem(IERC4626(vault).balanceOf(address(this)));
+                // @review: why do we check that withdrawAssets are greater than availableAssets here if we want to withdraw idle?
+                // as I understand, available assets are the total previewRedeem of the metavault shares in the base vault
+                // In this case availbale assets will always be >= vaultIdleAssets
                 // withdrawal assets should be the most minimum value of assets, vaultIdleAssets and availableAssets
                 uint256 withdrawAssets = assets;
                 if (withdrawAssets > vaultIdleAssets) {
@@ -418,6 +422,7 @@ contract MetaVault is Initializable, ManagedVault {
         }
     }
 
+    // @review: Are we sure that underflow is not possible here?
     /// @notice Assets that are requested to be withdraw
     function pendingWithdrawalAssets() public view returns (uint256) {
         return cumulativeRequestedWithdrawalAssets() - cumulativeWithdrawnAssets();
