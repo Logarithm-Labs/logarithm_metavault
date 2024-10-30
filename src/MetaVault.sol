@@ -71,6 +71,12 @@ contract MetaVault is Initializable, ManagedVault {
 
     event Claimed(address indexed receiver, address indexed owner, bytes32 indexed withdrawKey, uint256 assets);
 
+    event Shutdown();
+
+    event Allocated(address[] targets, uint256[] assets);
+
+    event AllocationWithdraw(address indexed target, uint256 assets, uint256 shares);
+
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
@@ -113,6 +119,7 @@ contract MetaVault is Initializable, ManagedVault {
             revert MV__InvalidCaller();
         }
         _getMetaVaultStorage().shutdown = true;
+        emit Shutdown();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -190,9 +197,6 @@ contract MetaVault is Initializable, ManagedVault {
             uint256 vaultIdleAssets = ILogarithmVault(vault).idleAssets();
             if (vaultIdleAssets > 0) {
                 uint256 availableAssets = IERC4626(vault).previewRedeem(IERC4626(vault).balanceOf(address(this)));
-                // @review: why do we check that withdrawAssets are greater than availableAssets here if we want to withdraw idle?
-                // as I understand, available assets are the total previewRedeem of the metavault shares in the base vault
-                // In this case availbale assets will always be >= vaultIdleAssets
                 // withdrawal assets should be the most minimum value of assets, vaultIdleAssets and availableAssets
                 uint256 withdrawAssets = assets;
                 if (withdrawAssets > vaultIdleAssets) {
@@ -201,10 +205,11 @@ contract MetaVault is Initializable, ManagedVault {
                 if (withdrawAssets > availableAssets) {
                     withdrawAssets = availableAssets;
                 }
-                IERC4626(vault).withdraw(withdrawAssets, address(this), address(this));
+                uint256 shares = IERC4626(vault).withdraw(withdrawAssets, address(this), address(this));
                 unchecked {
                     assets -= withdrawAssets;
                 }
+                emit AllocationWithdraw(vault, withdrawAssets, shares);
             }
             unchecked {
                 index -= 1;
@@ -263,6 +268,8 @@ contract MetaVault is Initializable, ManagedVault {
         if (assetsAllocated > _idleAssets) {
             revert MV__OverAllocation();
         }
+
+        emit Allocated(targets, assets);
     }
 
     /// @notice Withdraw assets from the logarithm vaults
@@ -296,12 +303,15 @@ contract MetaVault is Initializable, ManagedVault {
             if (amount > 0) {
                 uint256 balanceBefore = IERC20(asset()).balanceOf(address(this));
                 uint256 assets;
+                uint256 shares;
                 if (isRedeem) {
-                    assets = IERC4626(target).redeem(amount, address(this), address(this));
+                    shares = amount;
+                    assets = IERC4626(target).redeem(shares, address(this), address(this));
                 } else {
                     assets = amount;
-                    IERC4626(target).withdraw(amount, address(this), address(this));
+                    shares = IERC4626(target).withdraw(assets, address(this), address(this));
                 }
+                emit AllocationWithdraw(target, assets, shares);
                 uint256 balanceAfter = IERC20(asset()).balanceOf(address(this));
                 if (balanceBefore == balanceAfter) {
                     uint256 nonce = ILogarithmVault(target).nonces(address(this));
