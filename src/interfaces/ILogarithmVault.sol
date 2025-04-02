@@ -8,9 +8,12 @@ interface ILogarithmVault {
         uint256 requestTimestamp;
         address owner;
         address receiver;
+        bool isPrioritized;
         bool isClaimed;
     }
 
+    function requestWithdraw(uint256 assets, address receiver, address owner) external returns (bytes32);
+    function requestRedeem(uint256 shares, address receiver, address owner) external returns (bytes32);
     function claim(bytes32 withdrawRequestKey) external returns (uint256);
     function isClaimable(bytes32 withdrawRequestKey) external view returns (bool);
     function withdrawRequests(bytes32 withdrawRequestKey) external view returns (WithdrawRequest memory);

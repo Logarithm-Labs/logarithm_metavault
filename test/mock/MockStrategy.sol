@@ -2,17 +2,18 @@
 pragma solidity ^0.8.13;
 
 import {MockToken} from "./MockToken.sol";
-import {MockLogVault} from "./MockLogVault.sol";
+import {LogarithmVault} from "managed_basis/src/vault/LogarithmVault.sol";
 
 contract MockStrategy {
-    MockToken asset;
-    MockLogVault vault;
+    MockToken public asset;
+    LogarithmVault public vault;
+    address public product;
 
     uint256 public utilizedAssets;
 
     constructor(address asset_, address vault_) {
         asset = MockToken(asset_);
-        vault = MockLogVault(vault_);
+        vault = LogarithmVault(vault_);
     }
 
     function utilize(uint256 amount) public {

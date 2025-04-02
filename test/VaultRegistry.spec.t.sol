@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {Test, console} from "forge-std/Test.sol";
 
 import {VaultRegistry} from "src/VaultRegistry.sol";
+import {DeployHelper} from "script/utils/DeployHelper.sol";
 
 contract VaultRegistrySpecTest is Test {
     VaultRegistry provider;
@@ -12,8 +13,7 @@ contract VaultRegistrySpecTest is Test {
     address vault2 = makeAddr("vault2");
 
     function setUp() public {
-        provider = new VaultRegistry();
-        provider.initialize(owner);
+        provider = DeployHelper.deployVaultRegistry(owner);
     }
 
     function test_register() public {

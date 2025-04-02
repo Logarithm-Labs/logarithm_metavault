@@ -2,11 +2,14 @@
 pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {LogarithmVault} from "managed_basis/src/vault/LogarithmVault.sol";
 import {MockToken} from "test/mock/MockToken.sol";
-import {MockLogVault} from "test/mock/MockLogVault.sol";
 import {MockStrategy} from "test/mock/MockStrategy.sol";
 import {VaultRegistry} from "src/VaultRegistry.sol";
 import {MetaVault} from "src/MetaVault.sol";
+import {VaultFactory} from "src/VaultFactory.sol";
+import {DeployHelper} from "script/utils/DeployHelper.sol";
 
 contract MetaVaultTest is Test {
     uint256 constant THOUSANDx6 = 1_000_000_000;
@@ -14,9 +17,9 @@ contract MetaVaultTest is Test {
     address curator = makeAddr("curator");
     address user = makeAddr("owner");
     MockToken asset;
-    MockLogVault logVault_1;
+    LogarithmVault logVault_1;
     MockStrategy strategy_1;
-    MockLogVault logVault_2;
+    LogarithmVault logVault_2;
     MockStrategy strategy_2;
 
     VaultRegistry registry;
@@ -25,24 +28,38 @@ contract MetaVaultTest is Test {
     function setUp() public {
         vm.startPrank(owner);
         asset = new MockToken();
-        logVault_1 = new MockLogVault();
-        logVault_1.initialize(owner, address(asset));
+        logVault_1 = LogarithmVault(
+            address(
+                new ERC1967Proxy(
+                    address(new LogarithmVault()),
+                    abi.encodeWithSelector(
+                        LogarithmVault.initialize.selector, owner, address(asset), address(0), 0, 0, "m", "m"
+                    )
+                )
+            )
+        );
         strategy_1 = new MockStrategy(address(asset), address(logVault_1));
         logVault_1.setStrategy(address(strategy_1));
-        logVault_2 = new MockLogVault();
-        logVault_2.initialize(owner, address(asset));
+        logVault_2 = LogarithmVault(
+            address(
+                new ERC1967Proxy(
+                    address(new LogarithmVault()),
+                    abi.encodeWithSelector(
+                        LogarithmVault.initialize.selector, owner, address(asset), address(0), 0, 0, "m", "m"
+                    )
+                )
+            )
+        );
         strategy_2 = new MockStrategy(address(asset), address(logVault_2));
         logVault_2.setStrategy(address(strategy_2));
-
-        registry = new VaultRegistry();
-        registry.initialize(owner);
+        registry = DeployHelper.deployVaultRegistry(owner);
         vm.startPrank(owner);
         registry.register(address(logVault_1));
         registry.register(address(logVault_2));
 
-        vault = new MetaVault();
-
-        vault.initialize(address(registry), curator, address(asset), "vault", "vault");
+        VaultFactory factory = new VaultFactory(address(registry), address(new MetaVault()), owner);
+        vm.startPrank(curator);
+        vault = MetaVault(factory.createVault(false, address(asset), "vault", "vault"));
 
         asset.mint(user, 5 * THOUSANDx6);
 
@@ -115,13 +132,13 @@ contract MetaVaultTest is Test {
         vault.allocate(targets, amounts);
     }
 
-    function test_allocationWithdraw_withIdle() public afterAllocated {
+    function test_withdrawAllocations_withIdle() public afterAllocated {
         vm.startPrank(curator);
         address[] memory targets = new address[](1);
         targets[0] = address(logVault_1);
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = THOUSANDx6;
-        vault.allocationWithdraw(targets, amounts);
+        vault.withdrawAllocations(targets, amounts);
         assertEq(logVault_1.balanceOf(address(vault)), 0);
         assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6);
         address[] memory allocatedVaults = vault.allocatedVaults();
@@ -132,14 +149,14 @@ contract MetaVaultTest is Test {
         assertEq(vault.idleAssets(), 4 * THOUSANDx6);
     }
 
-    function test_allocationWithdraw_woIdle() public afterAllocated {
+    function test_withdrawAllocations_woIdle() public afterAllocated {
         strategy_1.utilize(THOUSANDx6);
         vm.startPrank(curator);
         address[] memory targets = new address[](1);
         targets[0] = address(logVault_1);
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = THOUSANDx6;
-        vault.allocationRedeem(targets, amounts);
+        vault.redeemAllocations(targets, amounts);
 
         assertEq(logVault_1.balanceOf(address(vault)), 0);
         assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6);
@@ -166,7 +183,7 @@ contract MetaVaultTest is Test {
         assertEq(vault.totalAssets(), 4 * THOUSANDx6 + 995024875);
         assertEq(vault.idleAssets(), 3 * THOUSANDx6 + 995024875, "idle assets should be increased");
 
-        vault.allocationClaim();
+        vault.claimAllocations();
         (requestedAssets, claimableAssets) = vault.allocationClaimableAssets();
         assertEq(requestedAssets, 0);
         assertEq(claimableAssets, 0);
@@ -201,7 +218,7 @@ contract MetaVaultTest is Test {
         targets[0] = address(logVault_1);
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = THOUSANDx6;
-        vault.allocationRedeem(targets, amounts);
+        vault.redeemAllocations(targets, amounts);
         strategy_1.deutilize(THOUSANDx6);
 
         uint256 idleAssets = vault.idleAssets();
@@ -260,7 +277,7 @@ contract MetaVaultTest is Test {
         uint256[] memory amounts = new uint256[](2);
         amounts[0] = THOUSANDx6;
         amounts[1] = THOUSANDx6;
-        vault.allocationRedeem(targets, amounts);
+        vault.redeemAllocations(targets, amounts);
 
         assertEq(vault.totalAssets(), totalAssetsAfter, "total assets remains the same after withdrawal of allocation");
         assertFalse(vault.isClaimable(withdrawKey), "not claimable");

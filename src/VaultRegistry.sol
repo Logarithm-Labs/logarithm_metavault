@@ -59,6 +59,10 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
 
+    constructor() {
+        _disableInitializers();
+    }
+
     function initialize(address initialOwner) external initializer {
         __Ownable_init(initialOwner);
     }
