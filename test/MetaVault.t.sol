@@ -116,7 +116,7 @@ contract MetaVaultTest is Test {
         address[] memory allocatedVaults = vault.allocatedVaults();
         assertEq(allocatedVaults[0], targets[0]);
         assertEq(allocatedVaults[1], targets[1]);
-        assertEq(vault.totalAssets(), 4999999998);
+        assertEq(vault.totalAssets(), 5000000000);
     }
 
     function test_revert_allocateWithUnregisteredTarget() public {
@@ -171,17 +171,17 @@ contract MetaVaultTest is Test {
 
         assertEq(vault.allocatedAssets(), THOUSANDx6);
         (uint256 requestedAssets, uint256 claimableAssets) = vault.allocationClaimableAssets();
-        assertEq(requestedAssets, 995024875);
+        assertEq(requestedAssets, 1000000000);
         assertEq(claimableAssets, 0);
-        assertEq(vault.totalAssets(), 4 * THOUSANDx6 + 995024875);
+        assertEq(vault.totalAssets(), 4 * THOUSANDx6 + 1000000000);
         assertEq(vault.idleAssets(), 3 * THOUSANDx6);
 
         strategy_1.deutilize(THOUSANDx6);
         (requestedAssets, claimableAssets) = vault.allocationClaimableAssets();
         assertEq(requestedAssets, 0);
-        assertEq(claimableAssets, 995024875);
-        assertEq(vault.totalAssets(), 4 * THOUSANDx6 + 995024875);
-        assertEq(vault.idleAssets(), 3 * THOUSANDx6 + 995024875, "idle assets should be increased");
+        assertEq(claimableAssets, 1000000000);
+        assertEq(vault.totalAssets(), 4 * THOUSANDx6 + 1000000000);
+        assertEq(vault.idleAssets(), 3 * THOUSANDx6 + 1000000000, "idle assets should be increased");
 
         vault.claimAllocations();
         (requestedAssets, claimableAssets) = vault.allocationClaimableAssets();
@@ -222,7 +222,7 @@ contract MetaVaultTest is Test {
         strategy_1.deutilize(THOUSANDx6);
 
         uint256 idleAssets = vault.idleAssets();
-        assertEq(idleAssets, 3995024875, "idleAssets");
+        assertEq(idleAssets, 4000000000, "idleAssets");
 
         uint256 balBefore = asset.balanceOf(user);
         uint256 totalAssetsBefore = vault.totalAssets();
@@ -231,7 +231,7 @@ contract MetaVaultTest is Test {
         uint256 balAfter = asset.balanceOf(user);
         uint256 totalAssetsAfter = vault.totalAssets();
         assertEq(balAfter - balBefore, 35 * THOUSANDx6 / 10, "user balance should be increased");
-        assertEq(totalAssetsBefore - totalAssetsAfter, 3495024875, "total assets should be decreased");
+        assertEq(totalAssetsBefore - totalAssetsAfter, 3500000000, "total assets should be decreased");
     }
 
     function test_withdraw_whenIdleNotEnough_whenIdleFromCoreEnough() public afterAllocated {
@@ -244,10 +244,10 @@ contract MetaVaultTest is Test {
         uint256 balBefore = asset.balanceOf(user);
         uint256 totalAssetsBefore = vault.totalAssets();
         vm.startPrank(user);
-        vault.withdraw(4 * THOUSANDx6, user, user);
+        vault.requestWithdraw(4 * THOUSANDx6, user, user);
         uint256 balAfter = asset.balanceOf(user);
         uint256 totalAssetsAfter = vault.totalAssets();
-        assertEq(balAfter - balBefore, 4 * THOUSANDx6, "user balance should be increased");
+        assertEq(balAfter - balBefore, 3 * THOUSANDx6, "user balance should be increased");
         assertEq(totalAssetsBefore - totalAssetsAfter, 4 * THOUSANDx6, "total assets should be decreased");
     }
 
@@ -261,10 +261,10 @@ contract MetaVaultTest is Test {
         uint256 balBefore = asset.balanceOf(user);
         uint256 totalAssetsBefore = vault.totalAssets();
         vm.startPrank(user);
-        vault.withdraw(4 * THOUSANDx6, user, user);
+        vault.requestWithdraw(4 * THOUSANDx6, user, user);
         uint256 balAfter = asset.balanceOf(user);
         uint256 totalAssetsAfter = vault.totalAssets();
-        assertEq(balAfter - balBefore, 0, "user balance should be unchanged");
+        assertEq(balAfter - balBefore, 3 * THOUSANDx6, "user balance should be increased");
         assertEq(totalAssetsBefore - totalAssetsAfter, 4 * THOUSANDx6, "total assets should be decreased");
 
         bytes32 withdrawKey = vault.getWithdrawKey(user, 0);

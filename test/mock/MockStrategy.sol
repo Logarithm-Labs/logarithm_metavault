@@ -26,4 +26,6 @@ contract MockStrategy {
         utilizedAssets -= amount;
         vault.processPendingWithdrawRequests();
     }
+
+    function processAssetsToWithdraw() public {}
 }
