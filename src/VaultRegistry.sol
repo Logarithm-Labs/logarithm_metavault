@@ -6,6 +6,8 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
+import {IMetaVault} from "src/interfaces/IMetaVault.sol";
+
 /// @title VaultRegistry
 /// @author Logarithm Labs
 /// @notice Store vaults that are allowed to use as targets in meta vaults
@@ -48,7 +50,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
                                MODIFIERS
     //////////////////////////////////////////////////////////////*/
 
-    modifier nonZeroAddress(address vault) {
+    modifier noneZeroAddress(address vault) {
         if (vault == address(0)) {
             revert WP__ZeroAddress();
         }
@@ -74,17 +76,21 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Owner function to register a vault
-    function register(address vault) public onlyOwner nonZeroAddress(vault) {
+    function register(address vault) public onlyOwner noneZeroAddress(vault) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         $.registeredVaults.add(vault);
         emit VaultAdded(vault);
     }
 
     /// @notice Owner function to remove a vault from registers
-    function remove(address vault) public onlyOwner nonZeroAddress(vault) {
+    function remove(address vault) public onlyOwner noneZeroAddress(vault) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         $.registeredVaults.remove(vault);
         emit VaultRemoved(vault);
+    }
+
+    function shutdownMetaVault(address metaVault) public onlyOwner noneZeroAddress(metaVault) {
+        IMetaVault(metaVault).shutdown();
     }
 
     /*//////////////////////////////////////////////////////////////

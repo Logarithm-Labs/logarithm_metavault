@@ -293,4 +293,20 @@ contract MetaVaultTest is Test {
         assertEq(balAfter - balBefore, 4 * THOUSANDx6, "user balance should be increased");
         assertEq(vault.totalAssets(), THOUSANDx6, "total assets");
     }
+
+    function test_shutdown() public afterAllocated {
+        strategy_1.utilize(THOUSANDx6);
+        uint256 balanceBefore = asset.balanceOf(user);
+        vm.startPrank(owner);
+        registry.shutdownMetaVault(address(vault));
+        vm.startPrank(user);
+        uint256 shares = vault.balanceOf(user);
+        bytes32 withdrawKey = vault.requestRedeem(shares, owner, owner);
+        strategy_1.deutilize(THOUSANDx6);
+        assertEq(vault.totalAssets(), 0, "total assets should be 0 after shutdown");
+        assertEq(vault.totalSupply(), 0, "total supply should be 0 after shutdown");
+        vault.claim(withdrawKey);
+        uint256 balanceAfter = asset.balanceOf(user);
+        assertEq(balanceAfter - balanceBefore, 5 * THOUSANDx6, "user balance should be increased");
+    }
 }
