@@ -397,9 +397,8 @@ contract MetaVault is Initializable, ManagedVault {
 
     /// @dev Withdraw assets from the targets
     function _withdrawAllocation(address target, uint256 amount, bool isRedeem) internal {
-        MetaVaultStorage storage $ = _getMetaVaultStorage();
-        _validateTarget(target);
         if (amount > 0) {
+            MetaVaultStorage storage $ = _getMetaVaultStorage();
             bytes32 withdrawKey;
             if (isRedeem) {
                 withdrawKey = ILogarithmVault(target).requestRedeem(amount, address(this), address(this));
