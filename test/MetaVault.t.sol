@@ -3,8 +3,8 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {LogarithmVault} from "managed_basis/src/vault/LogarithmVault.sol";
-import {MockToken} from "test/mock/MockToken.sol";
 import {MockStrategy} from "test/mock/MockStrategy.sol";
 import {VaultRegistry} from "src/VaultRegistry.sol";
 import {MetaVault} from "src/MetaVault.sol";
@@ -16,7 +16,7 @@ contract MetaVaultTest is Test {
     address owner = makeAddr("owner");
     address curator = makeAddr("curator");
     address user = makeAddr("owner");
-    MockToken asset;
+    ERC20Mock asset;
     LogarithmVault logVault_1;
     MockStrategy strategy_1;
     LogarithmVault logVault_2;
@@ -27,7 +27,7 @@ contract MetaVaultTest is Test {
 
     function setUp() public {
         vm.startPrank(owner);
-        asset = new MockToken();
+        asset = new ERC20Mock();
         logVault_1 = LogarithmVault(
             address(
                 new ERC1967Proxy(

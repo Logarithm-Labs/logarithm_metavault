@@ -75,13 +75,19 @@ contract MetaVault is Initializable, ManagedVault {
         uint256 shares
     );
 
+    /// @dev Emitted when a withdraw request is claimed.
     event Claimed(address indexed receiver, address indexed owner, bytes32 indexed withdrawKey, uint256 assets);
 
+    /// @dev Emitted when the vault is shutdown.
     event Shutdown();
 
+    /// @dev Emitted when assets are allocated to a target vault.
     event Allocated(address indexed target, uint256 indexed assets, uint256 indexed shares);
 
+    /// @dev Emitted when assets are withdrawn from a target vault.
     event AllocationWithdrawn(address indexed target, address receiver, uint256 indexed assets, bytes32 withdrawKey);
+
+    /// @dev Emitted when shares are redeemed from a target vault.
     event AllocationRedeemed(address indexed target, address receiver, uint256 indexed shares, bytes32 withdrawKey);
 
     /*//////////////////////////////////////////////////////////////
@@ -118,7 +124,7 @@ contract MetaVault is Initializable, ManagedVault {
         $.vaultRegistry = vaultRegistry_;
     }
 
-    /// @notice Shutdown the vault
+    /// @notice Shutdown the vault when the vault is inactive.
     ///
     /// @dev Only callable by the vault registry
     /// @dev This function is used to prevent any further deposits
@@ -288,7 +294,7 @@ contract MetaVault is Initializable, ManagedVault {
         uint256 assetsToRequest,
         uint256 sharesToRequest
     ) internal virtual returns (bytes32) {
-        _harvestPerformanceFeeShares(assetsToRequest, sharesToRequest, false);
+        _harvestPerformanceFeeShares(assetsToRequest, false);
 
         if (caller != owner) {
             _spendAllowance(owner, caller, sharesToRequest);
@@ -401,10 +407,20 @@ contract MetaVault is Initializable, ManagedVault {
         if (amount > 0) {
             bytes32 withdrawKey;
             if (isRedeem) {
-                withdrawKey = ILogarithmVault(target).requestRedeem(amount, address(this), address(this));
+                uint256 maxShares = IERC4626(target).maxRedeem(address(this));
+                if (amount > maxShares) {
+                    withdrawKey = ILogarithmVault(target).requestRedeem(amount, address(this), address(this));
+                } else {
+                    IERC4626(target).redeem(amount, address(this), address(this));
+                }
                 emit AllocationRedeemed(target, address(this), amount, withdrawKey);
             } else {
-                withdrawKey = ILogarithmVault(target).requestWithdraw(amount, address(this), address(this));
+                uint256 maxAssets = IERC4626(target).maxWithdraw(address(this));
+                if (amount > maxAssets) {
+                    withdrawKey = ILogarithmVault(target).requestWithdraw(amount, address(this), address(this));
+                } else {
+                    IERC4626(target).withdraw(amount, address(this), address(this));
+                }
                 emit AllocationWithdrawn(target, address(this), amount, withdrawKey);
             }
             if (withdrawKey != bytes32(0)) {

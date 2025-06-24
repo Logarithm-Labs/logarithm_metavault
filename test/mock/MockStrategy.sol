@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {MockToken} from "./MockToken.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {LogarithmVault} from "managed_basis/src/vault/LogarithmVault.sol";
 
 contract MockStrategy {
-    MockToken public asset;
+    ERC20Mock public asset;
     LogarithmVault public vault;
     address public product;
 
     uint256 public utilizedAssets;
+    uint256 public executionCost;
 
     constructor(address asset_, address vault_) {
-        asset = MockToken(asset_);
+        asset = ERC20Mock(asset_);
         vault = LogarithmVault(vault_);
     }
 
@@ -28,4 +29,12 @@ contract MockStrategy {
     }
 
     function processAssetsToWithdraw() public {}
+
+    function reserveExecutionCost(uint256 cost) public {
+        executionCost = cost;
+    }
+
+    function reservedExecutionCost() public view returns (uint256) {
+        return executionCost;
+    }
 }

@@ -8,6 +8,5 @@
   "inline-bookmarks.default.words.red": "@fix, @FIX, @fixme, @FIXME, @vuln, @VULN",
   "inline-bookmarks.default.words.blue": "@todo, @TODO, @note, @NOTE",
   "inline-bookmarks.default.words.green": "@ok, @OK",
-  "inline-bookmarks.default.words.purple": "@issue, @ISSUE, @optimize, @OPTIMIZE, @review, @REVIEW",
-  "solidity.remappings": ["managed_basis/=lib/managed-basis/"]
+  "inline-bookmarks.default.words.purple": "@issue, @ISSUE, @optimize, @OPTIMIZE, @review, @REVIEW"
 }
