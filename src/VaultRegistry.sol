@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
@@ -21,6 +22,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     /// @custom:storage-location erc7201:logarithm.storage.VaultRegistry
     struct VaultRegistryStorage {
         EnumerableSet.AddressSet registeredVaults;
+        mapping(address vault => bool) isApproved;
     }
 
     // keccak256(abi.encode(uint256(keccak256("logarithm.storage.VaultRegistry")) - 1)) & ~bytes32(uint256(0xff))
@@ -37,14 +39,20 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event VaultAdded(address indexed vault);
-    event VaultRemoved(address indexed vault);
+    event VaultRegistered(
+        address indexed vault, address indexed underlyingAsset, uint256 decimals, string name, string symbol
+    );
+
+    event VaultApproved(address indexed vault);
+    event VaultUnapproved(address indexed vault);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
     error WP__ZeroAddress();
+    error WP__VaultNotRegistered();
+    error WP__VaultAlreadyRegistered();
 
     /*//////////////////////////////////////////////////////////////
                                MODIFIERS
@@ -76,19 +84,48 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Owner function to register a vault
+    ///
+    /// @param vault The address of the vault to register
     function register(address vault) public onlyOwner noneZeroAddress(vault) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
+        if ($.registeredVaults.contains(vault)) {
+            revert WP__VaultAlreadyRegistered();
+        }
         $.registeredVaults.add(vault);
-        emit VaultAdded(vault);
+        address underlyingAsset = IERC4626(vault).asset();
+        string memory name = IERC4626(vault).name();
+        string memory symbol = IERC4626(vault).symbol();
+        uint256 decimals = IERC4626(vault).decimals();
+        emit VaultRegistered(vault, underlyingAsset, decimals, name, symbol);
     }
 
-    /// @notice Owner function to remove a vault from registers
-    function remove(address vault) public onlyOwner noneZeroAddress(vault) {
+    /// @notice Owner function to approve a vault
+    ///
+    /// @param vault The address of the vault to approve
+    function approve(address vault) public onlyOwner noneZeroAddress(vault) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
-        $.registeredVaults.remove(vault);
-        emit VaultRemoved(vault);
+        if ($.registeredVaults.contains(vault)) {
+            $.isApproved[vault] = true;
+            emit VaultApproved(vault);
+        } else {
+            revert WP__VaultNotRegistered();
+        }
     }
 
+    /// @notice Owner function to remove a vault from registered vaults
+    ///
+    /// @param vault The address of the vault to remove
+    function unapprove(address vault) public onlyOwner noneZeroAddress(vault) {
+        VaultRegistryStorage storage $ = _getVaultRegistryStorage();
+        if ($.registeredVaults.contains(vault)) {
+            $.isApproved[vault] = false;
+            emit VaultUnapproved(vault);
+        } else {
+            revert WP__VaultNotRegistered();
+        }
+    }
+
+    /// @notice Owner function to shutdown a meta vault
     function shutdownMetaVault(address metaVault) public onlyOwner noneZeroAddress(metaVault) {
         IMetaVault(metaVault).shutdown();
     }
@@ -107,5 +144,11 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     function isRegistered(address vault) public view returns (bool) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         return $.registeredVaults.contains(vault);
+    }
+
+    /// @notice True if an inputted vault is approved
+    function isApproved(address vault) public view returns (bool) {
+        VaultRegistryStorage storage $ = _getVaultRegistryStorage();
+        return $.isApproved[vault];
     }
 }
