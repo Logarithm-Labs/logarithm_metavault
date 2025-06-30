@@ -23,6 +23,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     struct VaultRegistryStorage {
         EnumerableSet.AddressSet registeredVaults;
         mapping(address vault => bool) isApproved;
+        address agent;
     }
 
     // keccak256(abi.encode(uint256(keccak256("logarithm.storage.VaultRegistry")) - 1)) & ~bytes32(uint256(0xff))
@@ -45,6 +46,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
 
     event VaultApproved(address indexed vault);
     event VaultUnapproved(address indexed vault);
+    event AgentSet(address indexed agent);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -53,6 +55,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     error WP__ZeroAddress();
     error WP__VaultNotRegistered();
     error WP__VaultAlreadyRegistered();
+    error WP__NotOwnerOrAgent();
 
     /*//////////////////////////////////////////////////////////////
                                MODIFIERS
@@ -83,10 +86,21 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
                             ADMIN FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Owner function to register a vault
+    /// @notice Owner function to set the agent
+    ///
+    /// @param _agent The address of the agent
+    function setAgent(address _agent) public onlyOwner noneZeroAddress(_agent) onlyOwner {
+        if (agent() != _agent) {
+            _getVaultRegistryStorage().agent = _agent;
+            emit AgentSet(_agent);
+        }
+    }
+
+    /// @notice Owner or agent function to register a vault
     ///
     /// @param vault The address of the vault to register
-    function register(address vault) public onlyOwner noneZeroAddress(vault) {
+    function register(address vault) public noneZeroAddress(vault) {
+        _onlyOwnerOrAgent();
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         if ($.registeredVaults.contains(vault)) {
             revert WP__VaultAlreadyRegistered();
@@ -150,5 +164,21 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     function isApproved(address vault) public view returns (bool) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         return $.isApproved[vault];
+    }
+
+    /// @notice Address of the agent
+    function agent() public view returns (address) {
+        VaultRegistryStorage storage $ = _getVaultRegistryStorage();
+        return $.agent;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           PRIVATE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    function _onlyOwnerOrAgent() internal view {
+        if (_msgSender() != owner() && _msgSender() != agent()) {
+            revert WP__NotOwnerOrAgent();
+        }
     }
 }
