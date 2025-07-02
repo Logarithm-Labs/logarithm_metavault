@@ -586,7 +586,7 @@ contract MetaVault is Initializable, ManagedVault {
     function _validateTarget(address target) internal view {
         address _vaultRegistry = vaultRegistry();
         if (_vaultRegistry != address(0)) {
-            if (!IVaultRegistry(_vaultRegistry).isRegistered(target)) {
+            if (!IVaultRegistry(_vaultRegistry).isApproved(target)) {
                 revert MV__InvalidTargetAllocation();
             }
         }

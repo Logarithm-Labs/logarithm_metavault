@@ -56,6 +56,8 @@ contract MetaVaultTest is Test {
         vm.startPrank(owner);
         registry.register(address(logVault_1));
         registry.register(address(logVault_2));
+        registry.approve(address(logVault_1));
+        registry.approve(address(logVault_2));
 
         VaultFactory factory = new VaultFactory(address(registry), address(new MetaVault()), owner);
         vm.startPrank(curator);
