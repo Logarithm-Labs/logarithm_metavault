@@ -17,6 +17,8 @@ import {IVaultRegistry} from "src/interfaces/IVaultRegistry.sol";
 /// @title MetaVault
 /// @author Logarithm Labs
 /// @notice Vault implementation that is used by vault factory
+/// @dev This smart contract is for allocating/deallocating assets to/from the vaults
+/// @dev For the target vaults, they are LogarithmVaults (Async-one) and standard ERC4626 vaults
 contract MetaVault is Initializable, ManagedVault {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
@@ -402,6 +404,7 @@ contract MetaVault is Initializable, ManagedVault {
     }
 
     /// @dev Withdraw assets from the targets
+    /// @dev This function includes requestRedeem/requestWithdraw that are supported in LogarithmVaults
     function _withdrawAllocation(address target, uint256 amount, bool isRedeem) internal {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         if (amount > 0) {
@@ -409,6 +412,9 @@ contract MetaVault is Initializable, ManagedVault {
             if (isRedeem) {
                 uint256 maxShares = IERC4626(target).maxRedeem(address(this));
                 if (amount > maxShares) {
+                    // If the amount exceeds the maximum redeemable shares, use requestRedeem (for LogarithmVaults),
+                    // then claim the redemption when available.
+                    // For standard ERC4626 vaults, this will simply revert if exceeded.
                     withdrawKey = ILogarithmVault(target).requestRedeem(amount, address(this), address(this));
                 } else {
                     IERC4626(target).redeem(amount, address(this), address(this));
@@ -417,6 +423,9 @@ contract MetaVault is Initializable, ManagedVault {
             } else {
                 uint256 maxAssets = IERC4626(target).maxWithdraw(address(this));
                 if (amount > maxAssets) {
+                    // If the amount exceeds the maximum withdrawable assets, use requestWithdraw (for LogarithmVaults),
+                    // then claim the withdrawal when available.
+                    // For standard ERC4626 vaults, this will simply revert if exceeded.
                     withdrawKey = ILogarithmVault(target).requestWithdraw(amount, address(this), address(this));
                 } else {
                     IERC4626(target).withdraw(amount, address(this), address(this));
