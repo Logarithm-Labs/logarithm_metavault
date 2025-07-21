@@ -17,6 +17,8 @@ import {IVaultRegistry} from "src/interfaces/IVaultRegistry.sol";
 /// @title MetaVault
 /// @author Logarithm Labs
 /// @notice Vault implementation that is used by vault factory
+/// @dev This smart contract is for allocating/deallocating assets to/from the vaults
+/// @dev For the target vaults, they are LogarithmVaults (Async-one) and standard ERC4626 vaults
 contract MetaVault is Initializable, ManagedVault {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
@@ -65,17 +67,30 @@ contract MetaVault is Initializable, ManagedVault {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev Emitted when a withdraw request is created against the core vault.
     event WithdrawRequested(
-        address indexed caller, address indexed receiver, address indexed owner, bytes32 withdrawKey, uint256 assets
+        address indexed caller,
+        address indexed receiver,
+        address indexed owner,
+        bytes32 withdrawKey,
+        uint256 assets,
+        uint256 shares
     );
 
+    /// @dev Emitted when a withdraw request is claimed.
     event Claimed(address indexed receiver, address indexed owner, bytes32 indexed withdrawKey, uint256 assets);
 
+    /// @dev Emitted when the vault is shutdown.
     event Shutdown();
 
-    event Allocated(address indexed target, uint256 assets, uint256 shares);
+    /// @dev Emitted when assets are allocated to a target vault.
+    event Allocated(address indexed target, uint256 indexed assets, uint256 indexed shares);
 
-    event AllocationWithdraw(address indexed target, uint256 assets, uint256 shares);
+    /// @dev Emitted when assets are withdrawn from a target vault.
+    event AllocationWithdrawn(address indexed target, address receiver, uint256 indexed assets, bytes32 withdrawKey);
+
+    /// @dev Emitted when shares are redeemed from a target vault.
+    event AllocationRedeemed(address indexed target, address receiver, uint256 indexed shares, bytes32 withdrawKey);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -87,10 +102,17 @@ contract MetaVault is Initializable, ManagedVault {
     error MV__OverAllocation();
     error MV__Shutdown();
     error MV__InvalidCaller();
+    error MV__ExceededMaxRequestWithdraw(address owner, uint256 assets, uint256 max);
+    error MV__ExceededMaxRequestRedeem(address owner, uint256 shares, uint256 max);
+    error MV__ZeroShares();
 
     /*//////////////////////////////////////////////////////////////
                              INITIALIZATION
     //////////////////////////////////////////////////////////////*/
+
+    constructor() {
+        _disableInitializers();
+    }
 
     function initialize(
         address vaultRegistry_,
@@ -104,11 +126,28 @@ contract MetaVault is Initializable, ManagedVault {
         $.vaultRegistry = vaultRegistry_;
     }
 
+    /// @notice Shutdown the vault when the vault is inactive.
+    ///
+    /// @dev Only callable by the vault registry
+    /// @dev This function is used to prevent any further deposits
+    /// @dev Redeem all shares from the logarithm vaults
     function shutdown() external {
         if (_msgSender() != vaultRegistry()) {
             revert MV__InvalidCaller();
         }
         _getMetaVaultStorage().shutdown = true;
+
+        // redeem all shares from the logarithm vaults
+        address[] memory _allocatedVaults = allocatedVaults();
+        uint256 len = _allocatedVaults.length;
+        for (uint256 i; i < len;) {
+            address vault = _allocatedVaults[i];
+            uint256 shares = IERC4626(vault).balanceOf(address(this));
+            _withdrawAllocation(vault, shares, true);
+            unchecked {
+                ++i;
+            }
+        }
         emit Shutdown();
     }
 
@@ -117,9 +156,39 @@ contract MetaVault is Initializable, ManagedVault {
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc ERC4626Upgradeable
+    function maxDeposit(address receiver) public view virtual override returns (uint256) {
+        return isShutdown() ? 0 : super.maxDeposit(receiver);
+    }
+
+    /// @inheritdoc ERC4626Upgradeable
+    function maxMint(address receiver) public view virtual override returns (uint256) {
+        return isShutdown() ? 0 : super.maxMint(receiver);
+    }
+
+    /// @dev This is limited by the idle assets.
+    ///
+    /// @inheritdoc ERC4626Upgradeable
+    function maxWithdraw(address owner) public view virtual override returns (uint256) {
+        uint256 assets = super.maxWithdraw(owner);
+        uint256 withdrawableAssets = idleAssets();
+        return assets > withdrawableAssets ? withdrawableAssets : assets;
+    }
+
+    /// @dev This is limited by the idle assets.
+    ///
+    /// @inheritdoc ERC4626Upgradeable
+    function maxRedeem(address owner) public view virtual override returns (uint256) {
+        uint256 shares = super.maxRedeem(owner);
+        // should be rounded floor so that the derived assets can't exceed idle
+        uint256 redeemableShares = _convertToShares(idleAssets(), Math.Rounding.Floor);
+        return shares > redeemableShares ? redeemableShares : shares;
+    }
+
+    /// @inheritdoc ERC4626Upgradeable
     function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal virtual override {
-        _requireNotShutdown();
-        _harvestPerformanceFeeShares(assets, shares, true);
+        if (shares == 0) {
+            revert MV__ZeroShares();
+        }
         super._deposit(caller, receiver, assets, shares);
     }
 
@@ -129,83 +198,129 @@ contract MetaVault is Initializable, ManagedVault {
         virtual
         override
     {
-        _harvestPerformanceFeeShares(assets, shares, false);
-
-        MetaVaultStorage storage $ = _getMetaVaultStorage();
-
-        if (caller != owner) {
-            _spendAllowance(owner, caller, shares);
-        }
-
-        // If _asset is ERC777, `transfer` can trigger a reentrancy AFTER the transfer happens through the
-        // `tokensReceived` hook. On the other hand, the `tokensToSend` hook, that is triggered before the transfer,
-        // calls the vault, which is assumed not malicious.
-        //
-        // Conclusion: we need to do the transfer after the burn so that any reentrancy would happen after the
-        // shares are burned and after the assets are transferred, which is a valid state.
-        _burn(owner, shares);
-
-        uint256 _idleAssets = idleAssets();
-        if (_idleAssets >= assets) {
-            allocationClaim();
-            IERC20(asset()).safeTransfer(receiver, assets);
-        } else {
-            uint256 remainingAssets = _allocationWithdrawIdleAssets(assets - _idleAssets);
-            if (remainingAssets > 0) {
-                uint256 _cumulativeRequestedWithdrawalAssets = cumulativeRequestedWithdrawalAssets();
-                _cumulativeRequestedWithdrawalAssets += assets;
-                $.cumulativeRequestedWithdrawalAssets = _cumulativeRequestedWithdrawalAssets;
-
-                bytes32 withdrawKey = getWithdrawKey(owner, _useNonce(owner));
-                $.withdrawRequests[withdrawKey] = WithdrawRequest({
-                    requestedAssets: assets,
-                    cumulativeRequestedWithdrawalAssets: _cumulativeRequestedWithdrawalAssets,
-                    requestTimestamp: block.timestamp,
-                    owner: owner,
-                    receiver: receiver,
-                    isClaimed: false
-                });
-
-                emit WithdrawRequested(caller, receiver, owner, withdrawKey, assets);
-            } else {
-                IERC20(asset()).safeTransfer(receiver, assets);
-            }
-        }
-
-        emit Withdraw(caller, receiver, owner, assets, shares);
+        claimAllocations();
+        super._withdraw(caller, receiver, owner, assets, shares);
     }
 
-    /// @dev withdraw idle assets of the logarithm vault
+    /// @notice Returns the maximum amount of the underlying asset that can be
+    /// requested to withdraw from the owner balance in the Vault,
+    /// through a requestWithdraw call.
+    function maxRequestWithdraw(address owner) public view returns (uint256) {
+        return super.maxWithdraw(owner);
+    }
+
+    /// @notice Returns the maximum amount of Vault shares that can be
+    /// requested to redeem from the owner balance in the Vault,
+    /// through a requestRedeem call.
+    function maxRequestRedeem(address owner) public view returns (uint256) {
+        return super.maxRedeem(owner);
+    }
+
+    /// @notice Requests to withdraw assets.
+    /// If idle assets are available in the Vault, they are withdrawn synchronously
+    /// within the `requestWithdraw` call, while any shortfall amount remains
+    /// pending for execution by the system.
     ///
-    /// @return remaining assets
-    function _allocationWithdrawIdleAssets(uint256 assets) internal returns (uint256) {
-        address[] memory _allocatedVaults = allocatedVaults();
-        uint256 index = _allocatedVaults.length;
-        // withdraw in reversed order of allocatedVaults
-        while (index != 0 && assets != 0) {
-            address vault = _allocatedVaults[index - 1];
-            uint256 vaultIdleAssets = ILogarithmVault(vault).idleAssets();
-            if (vaultIdleAssets > 0) {
-                uint256 availableAssets = IERC4626(vault).previewRedeem(IERC4626(vault).balanceOf(address(this)));
-                // withdrawal assets should be the most minimum value of assets, vaultIdleAssets and availableAssets
-                uint256 withdrawAssets = assets;
-                if (withdrawAssets > vaultIdleAssets) {
-                    withdrawAssets = vaultIdleAssets;
-                }
-                if (withdrawAssets > availableAssets) {
-                    withdrawAssets = availableAssets;
-                }
-                uint256 shares = IERC4626(vault).withdraw(withdrawAssets, address(this), address(this));
-                unchecked {
-                    assets -= withdrawAssets;
-                }
-                emit AllocationWithdraw(vault, withdrawAssets, shares);
-            }
-            unchecked {
-                index -= 1;
-            }
+    /// @dev Burns shares from owner and sends exactly assets of underlying tokens
+    /// to receiver if the idle assets is enough.
+    /// If the idle assets is not enough, creates a withdraw request with
+    /// the shortfall assets while sending the idle assets to receiver.
+    ///
+    /// @return The withdraw key that will be used in the claim function.
+    /// None zero bytes32 value if the requested asset amount is bigger than the idle assets,
+    /// otherwise zero bytes32 value.
+    function requestWithdraw(uint256 assets, address receiver, address owner) public virtual returns (bytes32) {
+        uint256 maxRequestAssets = maxRequestWithdraw(owner);
+        if (assets > maxRequestAssets) {
+            revert MV__ExceededMaxRequestWithdraw(owner, assets, maxRequestAssets);
         }
-        return assets;
+        uint256 maxAssets = maxWithdraw(owner);
+        uint256 assetsToWithdraw = assets > maxAssets ? maxAssets : assets;
+        // always assetsToWithdraw <= assets
+        uint256 assetsToRequest = assets - assetsToWithdraw;
+
+        uint256 shares = previewWithdraw(assets);
+        uint256 sharesToRedeem = _convertToShares(assetsToWithdraw, Math.Rounding.Ceil);
+        uint256 sharesToRequest = shares - sharesToRedeem;
+
+        if (assetsToWithdraw > 0) _withdraw(_msgSender(), receiver, owner, assetsToWithdraw, sharesToRedeem);
+
+        if (assetsToRequest > 0) {
+            return _requestWithdraw(_msgSender(), receiver, owner, assetsToRequest, sharesToRequest);
+        }
+        return bytes32(0);
+    }
+
+    /// @notice Requests to redeem shares.
+    /// If idle assets are available in the Vault, they are withdrawn synchronously
+    /// within the `requestWithdraw` call, while any shortfall amount remains
+    /// pending for execution by the system.
+    ///
+    /// @dev Burns exactly shares from owner and sends assets of underlying tokens
+    /// to receiver if the idle assets is enough,
+    /// If the idle assets is not enough, creates a withdraw request with
+    /// the shortfall assets while sending the idle assets to receiver.
+    ///
+    /// @return The withdraw key that will be used in the claim function.
+    /// None zero bytes32 value if the requested asset amount is bigger than the idle assets,
+    /// otherwise zero bytes32 value.
+    function requestRedeem(uint256 shares, address receiver, address owner) public virtual returns (bytes32) {
+        uint256 maxRequestShares = maxRequestRedeem(owner);
+        if (shares > maxRequestShares) {
+            revert MV__ExceededMaxRequestRedeem(owner, shares, maxRequestShares);
+        }
+
+        uint256 assets = previewRedeem(shares);
+        uint256 maxAssets = maxWithdraw(owner);
+
+        uint256 assetsToWithdraw = assets > maxAssets ? maxAssets : assets;
+        // always assetsToWithdraw <= assets
+        uint256 assetsToRequest = assets - assetsToWithdraw;
+
+        uint256 sharesToRedeem = _convertToShares(assetsToWithdraw, Math.Rounding.Ceil);
+        uint256 sharesToRequest = shares - sharesToRedeem;
+
+        if (assetsToWithdraw > 0) _withdraw(_msgSender(), receiver, owner, assetsToWithdraw, sharesToRedeem);
+
+        if (assetsToRequest > 0) {
+            return _requestWithdraw(_msgSender(), receiver, owner, assetsToRequest, sharesToRequest);
+        }
+        return bytes32(0);
+    }
+
+    /// @dev requestWithdraw/requestRedeem common workflow.
+    function _requestWithdraw(
+        address caller,
+        address receiver,
+        address owner,
+        uint256 assetsToRequest,
+        uint256 sharesToRequest
+    ) internal virtual returns (bytes32) {
+        _updateHwmWithdraw(sharesToRequest);
+
+        if (caller != owner) {
+            _spendAllowance(owner, caller, sharesToRequest);
+        }
+        _burn(owner, sharesToRequest);
+
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        uint256 _cumulativeRequestedWithdrawalAssets = cumulativeRequestedWithdrawalAssets();
+        _cumulativeRequestedWithdrawalAssets += assetsToRequest;
+        $.cumulativeRequestedWithdrawalAssets = _cumulativeRequestedWithdrawalAssets;
+
+        bytes32 withdrawKey = getWithdrawKey(owner, _useNonce(owner));
+        $.withdrawRequests[withdrawKey] = WithdrawRequest({
+            requestedAssets: assetsToRequest,
+            cumulativeRequestedWithdrawalAssets: _cumulativeRequestedWithdrawalAssets,
+            requestTimestamp: block.timestamp,
+            owner: owner,
+            receiver: receiver,
+            isClaimed: false
+        });
+
+        emit WithdrawRequested(caller, receiver, owner, withdrawKey, assetsToRequest, sharesToRequest);
+
+        return withdrawKey;
     }
 
     /// @notice Claim withdrawable assets
@@ -213,7 +328,7 @@ contract MetaVault is Initializable, ManagedVault {
         if (!isClaimable(withdrawKey)) {
             revert MV__NotClaimable();
         }
-        allocationClaim();
+        claimAllocations();
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         WithdrawRequest memory withdrawRequest = $.withdrawRequests[withdrawKey];
         $.withdrawRequests[withdrawKey].isClaimed = true;
@@ -227,15 +342,13 @@ contract MetaVault is Initializable, ManagedVault {
                              CURATOR LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Allocate assets to the logarithm vaults
-    ///
-    /// @dev targets should be the addresses of logarithm vaults
+    /// @notice Allocate the idle assets to the logarithm vaults
     ///
     /// @param targets Address array of the target vaults that are registered
-    /// @param assets Array of unit values that represents the asset amount to deposit
+    /// @param assets Unit value array to be deposited to the target vaults
     function allocate(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
         _requireNotShutdown();
-        allocationClaim();
+        claimAllocations();
         uint256 _idleAssets = idleAssets();
         uint256 len = _validateInputParams(targets, assets);
         uint256 assetsAllocated;
@@ -264,65 +377,75 @@ contract MetaVault is Initializable, ManagedVault {
 
     /// @notice Withdraw assets from the logarithm vaults
     ///
-    /// @dev targets should be the addresses of logarithm vaults
-    ///
     /// @param targets Address array of the target vaults that are registered
-    /// @param assets Array of unit values that represents the asset amount to withdraw
-    function allocationWithdraw(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
-        _allocationWithdraw(targets, assets, false);
-    }
-
-    /// @notice Redeem shares from the logarithm vaults
-    ///
-    /// @dev targets should be the addresses of logarithm vaults
-    ///
-    /// @param targets Address array of the target vaults that are registered
-    /// @param shares Array of unit values that represents the share amount to redeem
-    function allocationRedeem(address[] calldata targets, uint256[] calldata shares) external onlyOwner {
-        _allocationWithdraw(targets, shares, true);
-    }
-
-    /// @notice Withdraw assets from the targets
-    function _allocationWithdraw(address[] calldata targets, uint256[] calldata amounts, bool isRedeem) internal {
-        MetaVaultStorage storage $ = _getMetaVaultStorage();
-        uint256 len = _validateInputParams(targets, amounts);
+    /// @param assets Unit value array to be withdrawn from the target vaults
+    function withdrawAllocations(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
+        uint256 len = _validateInputParams(targets, assets);
         for (uint256 i; i < len;) {
-            address target = targets[i];
-            _validateTarget(target);
-            uint256 amount = amounts[i];
-            if (amount > 0) {
-                uint256 balanceBefore = IERC20(asset()).balanceOf(address(this));
-                uint256 assets;
-                uint256 shares;
-                if (isRedeem) {
-                    shares = amount;
-                    assets = IERC4626(target).redeem(shares, address(this), address(this));
-                } else {
-                    assets = amount;
-                    shares = IERC4626(target).withdraw(assets, address(this), address(this));
-                }
-                emit AllocationWithdraw(target, assets, shares);
-                uint256 balanceAfter = IERC20(asset()).balanceOf(address(this));
-                if (balanceBefore == balanceAfter) {
-                    uint256 nonce = ILogarithmVault(target).nonces(address(this));
-                    bytes32 withdrawKey = ILogarithmVault(target).getWithdrawKey(address(this), nonce - 1);
-                    $.claimableVaults.add(target);
-                    $.allocationWithdrawKeys[target].add(withdrawKey);
-                }
-            }
-            if (IERC4626(target).balanceOf(address(this)) == 0) {
-                $.allocatedVaults.remove(target);
-            }
+            _withdrawAllocation(targets[i], assets[i], false);
             unchecked {
                 ++i;
             }
         }
     }
 
+    /// @notice Redeem shares from the logarithm vaults
+    ///
+    /// @param targets Address array of the target vaults that are registered
+    /// @param shares Unit value array to be redeemed from the target vaults
+    function redeemAllocations(address[] calldata targets, uint256[] calldata shares) external onlyOwner {
+        uint256 len = _validateInputParams(targets, shares);
+        for (uint256 i; i < len;) {
+            _withdrawAllocation(targets[i], shares[i], true);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    /// @dev Withdraw assets from the targets
+    /// @dev This function includes requestRedeem/requestWithdraw that are supported in LogarithmVaults
+    function _withdrawAllocation(address target, uint256 amount, bool isRedeem) internal {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        if (amount > 0) {
+            bytes32 withdrawKey;
+            if (isRedeem) {
+                uint256 maxShares = IERC4626(target).maxRedeem(address(this));
+                if (amount > maxShares) {
+                    // If the amount exceeds the maximum redeemable shares, use requestRedeem (for LogarithmVaults),
+                    // then claim the redemption when available.
+                    // For standard ERC4626 vaults, this will simply revert if exceeded.
+                    withdrawKey = ILogarithmVault(target).requestRedeem(amount, address(this), address(this));
+                } else {
+                    IERC4626(target).redeem(amount, address(this), address(this));
+                }
+                emit AllocationRedeemed(target, address(this), amount, withdrawKey);
+            } else {
+                uint256 maxAssets = IERC4626(target).maxWithdraw(address(this));
+                if (amount > maxAssets) {
+                    // If the amount exceeds the maximum withdrawable assets, use requestWithdraw (for LogarithmVaults),
+                    // then claim the withdrawal when available.
+                    // For standard ERC4626 vaults, this will simply revert if exceeded.
+                    withdrawKey = ILogarithmVault(target).requestWithdraw(amount, address(this), address(this));
+                } else {
+                    IERC4626(target).withdraw(amount, address(this), address(this));
+                }
+                emit AllocationWithdrawn(target, address(this), amount, withdrawKey);
+            }
+            if (withdrawKey != bytes32(0)) {
+                $.claimableVaults.add(target);
+                $.allocationWithdrawKeys[target].add(withdrawKey);
+            }
+        }
+        if (IERC4626(target).balanceOf(address(this)) == 0) {
+            $.allocatedVaults.remove(target);
+        }
+    }
+
     /// @notice Claim assets from logarithm vaults
     ///
     /// @dev A decentralized function that can be called by anyone
-    function allocationClaim() public {
+    function claimAllocations() public {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         address[] memory _claimableVaults = claimableVaults();
         uint256 len = _claimableVaults.length;
@@ -353,6 +476,10 @@ contract MetaVault is Initializable, ManagedVault {
         }
     }
 
+    function harvestPerformanceFee() public onlyOwner {
+        _harvestPerformanceFeeShares();
+    }
+
     /*//////////////////////////////////////////////////////////////
                          PUBLIC VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -360,18 +487,31 @@ contract MetaVault is Initializable, ManagedVault {
     /// @inheritdoc IERC4626
     function totalAssets() public view override returns (uint256) {
         uint256 assetBalance = IERC20(asset()).balanceOf(address(this));
-        (uint256 requestedAssets, uint256 claimableAssets) = allocationClaimableAssets();
+        (uint256 requestedAssets, uint256 claimableAssets) = getWithdrawalsFromAllocation();
         (, uint256 assets) =
-            (assetBalance + allocatedAssets() + requestedAssets + claimableAssets).trySub(pendingWithdrawalAssets());
+            (assetBalance + allocatedAssets() + requestedAssets + claimableAssets).trySub(assetsToClaim());
         return assets;
     }
 
     /// @notice Assets that are free to allocate
     function idleAssets() public view returns (uint256) {
         uint256 assetBalance = IERC20(asset()).balanceOf(address(this));
-        (, uint256 claimableAssets) = allocationClaimableAssets();
-        (, uint256 assets) = (assetBalance + claimableAssets).trySub(pendingWithdrawalAssets());
+        (, uint256 claimableAssets) = getWithdrawalsFromAllocation();
+        (, uint256 assets) = (assetBalance + claimableAssets).trySub(assetsToClaim());
         return assets;
+    }
+
+    /// @notice Assets that are requested to withdraw from logarithm vaults
+    function pendingWithdrawals() public view returns (uint256) {
+        uint256 assetBalance = IERC20(asset()).balanceOf(address(this));
+        (uint256 requestedAssets, uint256 claimableAssets) = getWithdrawalsFromAllocation();
+        (, uint256 assets) = assetsToClaim().trySub(assetBalance + claimableAssets + requestedAssets);
+        return assets;
+    }
+
+    /// @notice Assets that should be claimed
+    function assetsToClaim() public view returns (uint256) {
+        return cumulativeRequestedWithdrawalAssets() - cumulativeWithdrawnAssets();
     }
 
     /// @notice Assets that are allocated
@@ -390,11 +530,11 @@ contract MetaVault is Initializable, ManagedVault {
         return assets;
     }
 
-    /// @notice Shows claimable assets that are in the logarithm vault
+    /// @notice Get the asset amounts requested to withdraw from logarithm vaults
     ///
-    /// @return requestedAssets The claimable assets that are not able to claim from the logarithm vault
-    /// @return claimableAssets The claimable assets that are able to claim from the logarithm vault
-    function allocationClaimableAssets() public view returns (uint256 requestedAssets, uint256 claimableAssets) {
+    /// @return requestedAssets The assets requested to withdraw from logarithm vaults, but not claimable.
+    /// @return claimableAssets The assets requested to withdraw from logarithm vaults, and claimable
+    function getWithdrawalsFromAllocation() public view returns (uint256 requestedAssets, uint256 claimableAssets) {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         uint256 len = $.claimableVaults.length();
         for (uint256 i; i < len;) {
@@ -422,11 +562,6 @@ contract MetaVault is Initializable, ManagedVault {
         }
     }
 
-    /// @notice Assets that are requested to be withdraw
-    function pendingWithdrawalAssets() public view returns (uint256) {
-        return cumulativeRequestedWithdrawalAssets() - cumulativeWithdrawnAssets();
-    }
-
     /// @notice calculate withdraw request key given a user and his nonce
     function getWithdrawKey(address user, uint256 nonce) public view returns (bytes32) {
         return keccak256(abi.encodePacked(address(this), user, nonce));
@@ -434,7 +569,7 @@ contract MetaVault is Initializable, ManagedVault {
 
     function isClaimable(bytes32 withdrawKey) public view returns (bool) {
         uint256 assetBalance = IERC20(asset()).balanceOf(address(this));
-        (, uint256 claimableAssets) = allocationClaimableAssets();
+        (, uint256 claimableAssets) = getWithdrawalsFromAllocation();
         WithdrawRequest memory withdrawRequest = withdrawRequests(withdrawKey);
         return !withdrawRequest.isClaimed
             && withdrawRequest.cumulativeRequestedWithdrawalAssets
@@ -445,7 +580,7 @@ contract MetaVault is Initializable, ManagedVault {
                            INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice validate params arrays' length
+    /// @dev validate params arrays' length
     ///
     /// @return length of array
     function _validateInputParams(address[] calldata targets, uint256[] calldata values)
@@ -460,11 +595,11 @@ contract MetaVault is Initializable, ManagedVault {
         return len;
     }
 
-    /// @notice validate if target is registered
+    /// @dev validate if target is registered
     function _validateTarget(address target) internal view {
         address _vaultRegistry = vaultRegistry();
         if (_vaultRegistry != address(0)) {
-            if (!IVaultRegistry(_vaultRegistry).isRegistered(target)) {
+            if (!IVaultRegistry(_vaultRegistry).isApproved(target)) {
                 revert MV__InvalidTargetAllocation();
             }
         }

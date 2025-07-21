@@ -2,21 +2,24 @@
 pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
-import {MockToken} from "test/mock/MockToken.sol";
-import {MockLogVault} from "test/mock/MockLogVault.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
+import {LogarithmVault} from "managed_basis/src/vault/LogarithmVault.sol";
 import {MockStrategy} from "test/mock/MockStrategy.sol";
 import {VaultRegistry} from "src/VaultRegistry.sol";
 import {MetaVault} from "src/MetaVault.sol";
+import {VaultFactory} from "src/VaultFactory.sol";
+import {DeployHelper} from "script/utils/DeployHelper.sol";
 
 contract MetaVaultTest is Test {
     uint256 constant THOUSANDx6 = 1_000_000_000;
     address owner = makeAddr("owner");
     address curator = makeAddr("curator");
     address user = makeAddr("owner");
-    MockToken asset;
-    MockLogVault logVault_1;
+    ERC20Mock asset;
+    LogarithmVault logVault_1;
     MockStrategy strategy_1;
-    MockLogVault logVault_2;
+    LogarithmVault logVault_2;
     MockStrategy strategy_2;
 
     VaultRegistry registry;
@@ -24,25 +27,41 @@ contract MetaVaultTest is Test {
 
     function setUp() public {
         vm.startPrank(owner);
-        asset = new MockToken();
-        logVault_1 = new MockLogVault();
-        logVault_1.initialize(owner, address(asset));
+        asset = new ERC20Mock();
+        logVault_1 = LogarithmVault(
+            address(
+                new ERC1967Proxy(
+                    address(new LogarithmVault()),
+                    abi.encodeWithSelector(
+                        LogarithmVault.initialize.selector, owner, address(asset), address(0), 0, 0, "m", "m"
+                    )
+                )
+            )
+        );
         strategy_1 = new MockStrategy(address(asset), address(logVault_1));
         logVault_1.setStrategy(address(strategy_1));
-        logVault_2 = new MockLogVault();
-        logVault_2.initialize(owner, address(asset));
+        logVault_2 = LogarithmVault(
+            address(
+                new ERC1967Proxy(
+                    address(new LogarithmVault()),
+                    abi.encodeWithSelector(
+                        LogarithmVault.initialize.selector, owner, address(asset), address(0), 0, 0, "m", "m"
+                    )
+                )
+            )
+        );
         strategy_2 = new MockStrategy(address(asset), address(logVault_2));
         logVault_2.setStrategy(address(strategy_2));
-
-        registry = new VaultRegistry();
-        registry.initialize(owner);
+        registry = DeployHelper.deployVaultRegistry(owner);
         vm.startPrank(owner);
         registry.register(address(logVault_1));
         registry.register(address(logVault_2));
+        registry.approve(address(logVault_1));
+        registry.approve(address(logVault_2));
 
-        vault = new MetaVault();
-
-        vault.initialize(address(registry), curator, address(asset), "vault", "vault");
+        VaultFactory factory = new VaultFactory(address(registry), address(new MetaVault()), owner);
+        vm.startPrank(curator);
+        vault = MetaVault(factory.createVault(false, address(asset), "vault", "vault"));
 
         asset.mint(user, 5 * THOUSANDx6);
 
@@ -99,7 +118,7 @@ contract MetaVaultTest is Test {
         address[] memory allocatedVaults = vault.allocatedVaults();
         assertEq(allocatedVaults[0], targets[0]);
         assertEq(allocatedVaults[1], targets[1]);
-        assertEq(vault.totalAssets(), 4999999998);
+        assertEq(vault.totalAssets(), 5000000000);
     }
 
     function test_revert_allocateWithUnregisteredTarget() public {
@@ -115,13 +134,13 @@ contract MetaVaultTest is Test {
         vault.allocate(targets, amounts);
     }
 
-    function test_allocationWithdraw_withIdle() public afterAllocated {
+    function test_withdrawAllocations_withIdle() public afterAllocated {
         vm.startPrank(curator);
         address[] memory targets = new address[](1);
         targets[0] = address(logVault_1);
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = THOUSANDx6;
-        vault.allocationWithdraw(targets, amounts);
+        vault.withdrawAllocations(targets, amounts);
         assertEq(logVault_1.balanceOf(address(vault)), 0);
         assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6);
         address[] memory allocatedVaults = vault.allocatedVaults();
@@ -132,14 +151,14 @@ contract MetaVaultTest is Test {
         assertEq(vault.idleAssets(), 4 * THOUSANDx6);
     }
 
-    function test_allocationWithdraw_woIdle() public afterAllocated {
+    function test_withdrawAllocations_woIdle() public afterAllocated {
         strategy_1.utilize(THOUSANDx6);
         vm.startPrank(curator);
         address[] memory targets = new address[](1);
         targets[0] = address(logVault_1);
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = THOUSANDx6;
-        vault.allocationRedeem(targets, amounts);
+        vault.redeemAllocations(targets, amounts);
 
         assertEq(logVault_1.balanceOf(address(vault)), 0);
         assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6);
@@ -153,21 +172,21 @@ contract MetaVaultTest is Test {
         assertEq(claimableVaults[0], address(logVault_1));
 
         assertEq(vault.allocatedAssets(), THOUSANDx6);
-        (uint256 requestedAssets, uint256 claimableAssets) = vault.allocationClaimableAssets();
-        assertEq(requestedAssets, 995024875);
+        (uint256 requestedAssets, uint256 claimableAssets) = vault.getWithdrawalsFromAllocation();
+        assertEq(requestedAssets, 1000000000);
         assertEq(claimableAssets, 0);
-        assertEq(vault.totalAssets(), 4 * THOUSANDx6 + 995024875);
+        assertEq(vault.totalAssets(), 4 * THOUSANDx6 + 1000000000);
         assertEq(vault.idleAssets(), 3 * THOUSANDx6);
 
         strategy_1.deutilize(THOUSANDx6);
-        (requestedAssets, claimableAssets) = vault.allocationClaimableAssets();
+        (requestedAssets, claimableAssets) = vault.getWithdrawalsFromAllocation();
         assertEq(requestedAssets, 0);
-        assertEq(claimableAssets, 995024875);
-        assertEq(vault.totalAssets(), 4 * THOUSANDx6 + 995024875);
-        assertEq(vault.idleAssets(), 3 * THOUSANDx6 + 995024875, "idle assets should be increased");
+        assertEq(claimableAssets, 1000000000);
+        assertEq(vault.totalAssets(), 4 * THOUSANDx6 + 1000000000);
+        assertEq(vault.idleAssets(), 3 * THOUSANDx6 + 1000000000, "idle assets should be increased");
 
-        vault.allocationClaim();
-        (requestedAssets, claimableAssets) = vault.allocationClaimableAssets();
+        vault.claimAllocations();
+        (requestedAssets, claimableAssets) = vault.getWithdrawalsFromAllocation();
         assertEq(requestedAssets, 0);
         assertEq(claimableAssets, 0);
         // last redeem receives the whole
@@ -201,11 +220,11 @@ contract MetaVaultTest is Test {
         targets[0] = address(logVault_1);
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = THOUSANDx6;
-        vault.allocationRedeem(targets, amounts);
+        vault.redeemAllocations(targets, amounts);
         strategy_1.deutilize(THOUSANDx6);
 
         uint256 idleAssets = vault.idleAssets();
-        assertEq(idleAssets, 3995024875, "idleAssets");
+        assertEq(idleAssets, 4000000000, "idleAssets");
 
         uint256 balBefore = asset.balanceOf(user);
         uint256 totalAssetsBefore = vault.totalAssets();
@@ -214,7 +233,7 @@ contract MetaVaultTest is Test {
         uint256 balAfter = asset.balanceOf(user);
         uint256 totalAssetsAfter = vault.totalAssets();
         assertEq(balAfter - balBefore, 35 * THOUSANDx6 / 10, "user balance should be increased");
-        assertEq(totalAssetsBefore - totalAssetsAfter, 3495024875, "total assets should be decreased");
+        assertEq(totalAssetsBefore - totalAssetsAfter, 3500000000, "total assets should be decreased");
     }
 
     function test_withdraw_whenIdleNotEnough_whenIdleFromCoreEnough() public afterAllocated {
@@ -227,10 +246,10 @@ contract MetaVaultTest is Test {
         uint256 balBefore = asset.balanceOf(user);
         uint256 totalAssetsBefore = vault.totalAssets();
         vm.startPrank(user);
-        vault.withdraw(4 * THOUSANDx6, user, user);
+        vault.requestWithdraw(4 * THOUSANDx6, user, user);
         uint256 balAfter = asset.balanceOf(user);
         uint256 totalAssetsAfter = vault.totalAssets();
-        assertEq(balAfter - balBefore, 4 * THOUSANDx6, "user balance should be increased");
+        assertEq(balAfter - balBefore, 3 * THOUSANDx6, "user balance should be increased");
         assertEq(totalAssetsBefore - totalAssetsAfter, 4 * THOUSANDx6, "total assets should be decreased");
     }
 
@@ -244,10 +263,10 @@ contract MetaVaultTest is Test {
         uint256 balBefore = asset.balanceOf(user);
         uint256 totalAssetsBefore = vault.totalAssets();
         vm.startPrank(user);
-        vault.withdraw(4 * THOUSANDx6, user, user);
+        vault.requestWithdraw(4 * THOUSANDx6, user, user);
         uint256 balAfter = asset.balanceOf(user);
         uint256 totalAssetsAfter = vault.totalAssets();
-        assertEq(balAfter - balBefore, 0, "user balance should be unchanged");
+        assertEq(balAfter - balBefore, 3 * THOUSANDx6, "user balance should be increased");
         assertEq(totalAssetsBefore - totalAssetsAfter, 4 * THOUSANDx6, "total assets should be decreased");
 
         bytes32 withdrawKey = vault.getWithdrawKey(user, 0);
@@ -260,7 +279,7 @@ contract MetaVaultTest is Test {
         uint256[] memory amounts = new uint256[](2);
         amounts[0] = THOUSANDx6;
         amounts[1] = THOUSANDx6;
-        vault.allocationRedeem(targets, amounts);
+        vault.redeemAllocations(targets, amounts);
 
         assertEq(vault.totalAssets(), totalAssetsAfter, "total assets remains the same after withdrawal of allocation");
         assertFalse(vault.isClaimable(withdrawKey), "not claimable");
@@ -275,5 +294,110 @@ contract MetaVaultTest is Test {
         balAfter = asset.balanceOf(user);
         assertEq(balAfter - balBefore, 4 * THOUSANDx6, "user balance should be increased");
         assertEq(vault.totalAssets(), THOUSANDx6, "total assets");
+    }
+
+    function test_shutdown() public afterAllocated {
+        strategy_1.utilize(THOUSANDx6);
+        uint256 balanceBefore = asset.balanceOf(user);
+        vm.startPrank(owner);
+        registry.shutdownMetaVault(address(vault));
+        vm.startPrank(user);
+        uint256 shares = vault.balanceOf(user);
+        bytes32 withdrawKey = vault.requestRedeem(shares, owner, owner);
+        strategy_1.deutilize(THOUSANDx6);
+        assertEq(vault.totalAssets(), 0, "total assets should be 0 after shutdown");
+        assertEq(vault.totalSupply(), 0, "total supply should be 0 after shutdown");
+        vault.claim(withdrawKey);
+        uint256 balanceAfter = asset.balanceOf(user);
+        assertEq(balanceAfter - balanceBefore, 5 * THOUSANDx6, "user balance should be increased");
+    }
+
+    function test_process_withdrawals_withIdleOfLog() public afterAllocated {
+        uint256 idleAssets = vault.idleAssets();
+        assertEq(idleAssets, 3 * THOUSANDx6, "idleAssets");
+
+        uint256 balBefore = asset.balanceOf(user);
+        assertEq(vault.pendingWithdrawals(), 0, "no pending withdrawals");
+        uint256 totalAssetsBefore = vault.totalAssets();
+        vm.startPrank(user);
+        uint256 amount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(amount, user, user);
+        assertFalse(vault.isClaimable(withdrawKey), "not claimable");
+        assertEq(vault.pendingWithdrawals(), THOUSANDx6, "THOUSANDx6 pending withdrawals");
+        uint256 balAfter = asset.balanceOf(user);
+        uint256 totalAssetsAfter = vault.totalAssets();
+        assertEq(balAfter - balBefore, idleAssets, "user balance should be increased by idle");
+        assertEq(totalAssetsBefore - totalAssetsAfter, amount, "total assets should be decreased by amount");
+
+        // process withdrawals
+        vm.startPrank(curator);
+        address[] memory targets = new address[](1);
+        targets[0] = address(logVault_1);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = THOUSANDx6;
+        vault.withdrawAllocations(targets, amounts);
+        (uint256 requestedAssets, uint256 claimableAssets) = vault.getWithdrawalsFromAllocation();
+        assertEq(requestedAssets, 0, "no requested");
+        assertEq(claimableAssets, 0, "no claimable allocation");
+
+        assertEq(logVault_1.balanceOf(address(vault)), 0, "log vault has 0 shares");
+        assertEq(asset.balanceOf(address(vault)), THOUSANDx6, "vault has requested");
+        assertTrue(vault.isClaimable(withdrawKey), "claimable");
+        assertEq(vault.idleAssets(), 0, "no idle");
+        assertEq(vault.pendingWithdrawals(), 0, "no pending withdrawals");
+    }
+
+    function test_process_withdrawals_withAsyncRedeemAllocation() public afterAllocated {
+        uint256 idleAssets = vault.idleAssets();
+        assertEq(idleAssets, 3 * THOUSANDx6, "idleAssets");
+        strategy_1.utilize(THOUSANDx6);
+
+        uint256 balBefore = asset.balanceOf(user);
+        assertEq(vault.pendingWithdrawals(), 0, "no pending withdrawals");
+        uint256 totalAssetsBefore = vault.totalAssets();
+        vm.startPrank(user);
+        uint256 amount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(amount, user, user);
+        assertFalse(vault.isClaimable(withdrawKey), "not claimable");
+        assertEq(vault.pendingWithdrawals(), THOUSANDx6, "THOUSANDx6 pending withdrawals");
+        uint256 balAfter = asset.balanceOf(user);
+        uint256 totalAssetsAfter = vault.totalAssets();
+        assertEq(balAfter - balBefore, idleAssets, "user balance should be increased by idle");
+        assertEq(totalAssetsBefore - totalAssetsAfter, amount, "total assets should be decreased by amount");
+
+        // process withdrawals
+        vm.startPrank(curator);
+        address[] memory targets = new address[](1);
+        targets[0] = address(logVault_1);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = THOUSANDx6;
+        vault.withdrawAllocations(targets, amounts);
+        assertEq(logVault_1.balanceOf(address(vault)), 0, "0 shares");
+        (uint256 requestedAssets, uint256 claimableAssets) = vault.getWithdrawalsFromAllocation();
+        assertEq(requestedAssets, THOUSANDx6, "THOUSANDx6 requested");
+        assertEq(claimableAssets, 0, "no claimable allocation");
+
+        uint256 processedAmount = THOUSANDx6 / 4;
+        strategy_1.deutilize(processedAmount);
+        (requestedAssets, claimableAssets) = vault.getWithdrawalsFromAllocation();
+        assertEq(requestedAssets, THOUSANDx6, "pending THOUSANDx6");
+        assertEq(claimableAssets, 0, "0 claimable allocation");
+
+        assertEq(asset.balanceOf(address(logVault_1)), processedAmount, "processedAmount withdrawn");
+        assertEq(asset.balanceOf(address(vault)), 0, "assets withdrawn from core");
+        assertFalse(vault.isClaimable(withdrawKey), "not claimable");
+        assertEq(vault.idleAssets(), 0, "no idle");
+        assertEq(vault.pendingWithdrawals(), 0, "no pending withdrawals");
+
+        strategy_1.deutilize(THOUSANDx6 - processedAmount);
+        (requestedAssets, claimableAssets) = vault.getWithdrawalsFromAllocation();
+        assertEq(requestedAssets, 0, "pending -");
+        assertEq(claimableAssets, THOUSANDx6, "THOUSANDx6 claimable allocation");
+
+        assertEq(asset.balanceOf(address(logVault_1)), THOUSANDx6, "assets withdrawn from core");
+        assertEq(asset.balanceOf(address(vault)), 0, "assets withdrawn from core");
+        assertTrue(vault.isClaimable(withdrawKey), "claimable");
+        assertEq(vault.idleAssets(), 0, "no idle");
+        assertEq(vault.pendingWithdrawals(), 0, "no pending withdrawals");
     }
 }
