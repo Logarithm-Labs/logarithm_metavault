@@ -357,7 +357,7 @@ contract MetaVault is Initializable, ManagedVault {
             _validateTarget(target);
             uint256 assetAmount = assets[i];
             if (assetAmount > 0) {
-                IERC20(asset()).approve(target, assetAmount);
+                IERC20(asset()).forceApprove(target, assetAmount);
                 uint256 shares = IERC4626(target).deposit(assetAmount, address(this));
                 _getMetaVaultStorage().allocatedVaults.add(target);
                 unchecked {

@@ -89,7 +89,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Owner function to set the agent
     ///
     /// @param _agent The address of the agent
-    function setAgent(address _agent) public onlyOwner noneZeroAddress(_agent) onlyOwner {
+    function setAgent(address _agent) public noneZeroAddress(_agent) onlyOwner {
         if (agent() != _agent) {
             _getVaultRegistryStorage().agent = _agent;
             emit AgentSet(_agent);

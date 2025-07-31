@@ -84,7 +84,7 @@ contract MetaVaultTest is Test {
     }
 
     function test_prod_nonstandard_tokemak() public {
-        vm.createSelectFork("base", 33571143);
+        vm.createSelectFork("base", 33579002);
         MetaVault newMetaVault = new MetaVault();
         VaultFactory factory = VaultFactory(0x6Ea41B6Ef80153B2Dc5AddF2594C10bB53F605E0);
         vm.startPrank(0xd1DD21D53eC43C8FE378E51029Aa3F380b229c98);
