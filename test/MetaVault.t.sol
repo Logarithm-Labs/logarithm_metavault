@@ -83,6 +83,18 @@ contract MetaVaultTest is Test {
         _;
     }
 
+    function test_prod_nonstandard_tokemak() public {
+        vm.createSelectFork("base", 33571143);
+        MetaVault newMetaVault = new MetaVault();
+        VaultFactory factory = VaultFactory(0x6Ea41B6Ef80153B2Dc5AddF2594C10bB53F605E0);
+        vm.startPrank(0xd1DD21D53eC43C8FE378E51029Aa3F380b229c98);
+        factory.upgradeTo(address(newMetaVault));
+        MetaVault metaVault = MetaVault(0xd275fBD6882C7c94b36292251ECA69BcCb87D8ad);
+        vm.startPrank(0xd7ac0DAe994E1d1EdbbDe130f6c6F1a6D907cA08);
+        metaVault.deposit(3852_880_000, 0xd7ac0DAe994E1d1EdbbDe130f6c6F1a6D907cA08);
+        vm.stopPrank();
+    }
+
     /*//////////////////////////////////////////////////////////////
                              CURATOR LOGIC
     //////////////////////////////////////////////////////////////*/

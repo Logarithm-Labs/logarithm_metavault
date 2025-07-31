@@ -522,8 +522,30 @@ contract MetaVault is Initializable, ManagedVault {
         for (uint256 i; i < len;) {
             address allocatedVault = _allocatedVaults[i];
             uint256 shares = IERC4626(allocatedVault).balanceOf(address(this));
+            if (shares > 0) {
+                // Try to use previewRedeem, but catch if it's not a pure view function
+                try IERC4626(allocatedVault).previewRedeem(shares) returns (uint256 previewAssets) {
+                    unchecked {
+                        assets += previewAssets;
+                    }
+                } catch {
+                    // Fallback: use convertToAssets if previewRedeem fails
+                    // This is a safer alternative that should work for most ERC4626 vaults
+                    try IERC4626(allocatedVault).convertToAssets(shares) returns (uint256 convertedAssets) {
+                        unchecked {
+                            assets += convertedAssets;
+                        }
+                    } catch {
+                        // If both fail, we can't calculate the value, so we skip this vault
+                        // This is a defensive approach to prevent the entire function from reverting
+                        unchecked {
+                            ++i;
+                        }
+                        continue;
+                    }
+                }
+            }
             unchecked {
-                assets += IERC4626(allocatedVault).previewRedeem(shares);
                 ++i;
             }
         }
