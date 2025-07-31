@@ -459,6 +459,8 @@ contract MetaVault is Initializable, ManagedVault {
                 if (ILogarithmVault(claimableVault).isClaimable(withdrawKey)) {
                     ILogarithmVault(claimableVault).claim(withdrawKey);
                     $.allocationWithdrawKeys[claimableVault].remove(withdrawKey);
+                } else if (ILogarithmVault(claimableVault).withdrawRequests(withdrawKey).isClaimed) {
+                    $.allocationWithdrawKeys[claimableVault].remove(withdrawKey);
                 } else {
                     allClaimed = false;
                 }
@@ -564,7 +566,15 @@ contract MetaVault is Initializable, ManagedVault {
             uint256 keyLen = $.allocationWithdrawKeys[claimableVault].length();
             for (uint256 j; j < keyLen;) {
                 bytes32 withdrawKey = $.allocationWithdrawKeys[claimableVault].at(j);
-                uint256 assets = ILogarithmVault(claimableVault).withdrawRequests(withdrawKey).requestedAssets;
+                ILogarithmVault.WithdrawRequest memory withdrawRequest =
+                    ILogarithmVault(claimableVault).withdrawRequests(withdrawKey);
+                if (withdrawRequest.isClaimed) {
+                    unchecked {
+                        ++j;
+                    }
+                    continue;
+                }
+                uint256 assets = withdrawRequest.requestedAssets;
                 if (ILogarithmVault(claimableVault).isClaimable(withdrawKey)) {
                     unchecked {
                         claimableAssets += assets;
