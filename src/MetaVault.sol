@@ -357,7 +357,7 @@ contract MetaVault is Initializable, ManagedVault {
             _validateTarget(target);
             uint256 assetAmount = assets[i];
             if (assetAmount > 0) {
-                IERC20(asset()).approve(target, assetAmount);
+                IERC20(asset()).forceApprove(target, assetAmount);
                 uint256 shares = IERC4626(target).deposit(assetAmount, address(this));
                 _getMetaVaultStorage().allocatedVaults.add(target);
                 unchecked {
@@ -459,6 +459,8 @@ contract MetaVault is Initializable, ManagedVault {
                 if (ILogarithmVault(claimableVault).isClaimable(withdrawKey)) {
                     ILogarithmVault(claimableVault).claim(withdrawKey);
                     $.allocationWithdrawKeys[claimableVault].remove(withdrawKey);
+                } else if (ILogarithmVault(claimableVault).withdrawRequests(withdrawKey).isClaimed) {
+                    $.allocationWithdrawKeys[claimableVault].remove(withdrawKey);
                 } else {
                     allClaimed = false;
                 }
@@ -522,8 +524,30 @@ contract MetaVault is Initializable, ManagedVault {
         for (uint256 i; i < len;) {
             address allocatedVault = _allocatedVaults[i];
             uint256 shares = IERC4626(allocatedVault).balanceOf(address(this));
+            if (shares > 0) {
+                // Try to use previewRedeem, but catch if it's not a pure view function
+                try IERC4626(allocatedVault).previewRedeem(shares) returns (uint256 previewAssets) {
+                    unchecked {
+                        assets += previewAssets;
+                    }
+                } catch {
+                    // Fallback: use convertToAssets if previewRedeem fails
+                    // This is a safer alternative that should work for most ERC4626 vaults
+                    try IERC4626(allocatedVault).convertToAssets(shares) returns (uint256 convertedAssets) {
+                        unchecked {
+                            assets += convertedAssets;
+                        }
+                    } catch {
+                        // If both fail, we can't calculate the value, so we skip this vault
+                        // This is a defensive approach to prevent the entire function from reverting
+                        unchecked {
+                            ++i;
+                        }
+                        continue;
+                    }
+                }
+            }
             unchecked {
-                assets += IERC4626(allocatedVault).previewRedeem(shares);
                 ++i;
             }
         }
@@ -542,7 +566,15 @@ contract MetaVault is Initializable, ManagedVault {
             uint256 keyLen = $.allocationWithdrawKeys[claimableVault].length();
             for (uint256 j; j < keyLen;) {
                 bytes32 withdrawKey = $.allocationWithdrawKeys[claimableVault].at(j);
-                uint256 assets = ILogarithmVault(claimableVault).withdrawRequests(withdrawKey).requestedAssets;
+                ILogarithmVault.WithdrawRequest memory withdrawRequest =
+                    ILogarithmVault(claimableVault).withdrawRequests(withdrawKey);
+                if (withdrawRequest.isClaimed) {
+                    unchecked {
+                        ++j;
+                    }
+                    continue;
+                }
+                uint256 assets = withdrawRequest.requestedAssets;
                 if (ILogarithmVault(claimableVault).isClaimable(withdrawKey)) {
                     unchecked {
                         claimableAssets += assets;
