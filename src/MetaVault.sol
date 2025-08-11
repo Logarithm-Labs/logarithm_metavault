@@ -9,7 +9,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {ManagedVault} from "managed_basis/src/vault/ManagedVault.sol";
+import {ManagedVault} from "managed_basis/vault/ManagedVault.sol";
 
 import {ILogarithmVault} from "src/interfaces/ILogarithmVault.sol";
 import {IVaultRegistry} from "src/interfaces/IVaultRegistry.sol";
@@ -410,24 +410,17 @@ contract MetaVault is Initializable, ManagedVault {
         if (amount > 0) {
             bytes32 withdrawKey;
             if (isRedeem) {
-                uint256 maxShares = IERC4626(target).maxRedeem(address(this));
-                if (amount > maxShares) {
-                    // If the amount exceeds the maximum redeemable shares, use requestRedeem (for LogarithmVaults),
-                    // then claim the redemption when available.
-                    // For standard ERC4626 vaults, this will simply revert if exceeded.
-                    withdrawKey = ILogarithmVault(target).requestRedeem(amount, address(this), address(this));
-                } else {
+                try ILogarithmVault(target).requestRedeem(amount, address(this), address(this)) returns (bytes32 key) {
+                    withdrawKey = key;
+                } catch {
                     IERC4626(target).redeem(amount, address(this), address(this));
                 }
                 emit AllocationRedeemed(target, address(this), amount, withdrawKey);
             } else {
-                uint256 maxAssets = IERC4626(target).maxWithdraw(address(this));
-                if (amount > maxAssets) {
-                    // If the amount exceeds the maximum withdrawable assets, use requestWithdraw (for LogarithmVaults),
-                    // then claim the withdrawal when available.
-                    // For standard ERC4626 vaults, this will simply revert if exceeded.
-                    withdrawKey = ILogarithmVault(target).requestWithdraw(amount, address(this), address(this));
-                } else {
+                try ILogarithmVault(target).requestWithdraw(amount, address(this), address(this)) returns (bytes32 key)
+                {
+                    withdrawKey = key;
+                } catch {
                     IERC4626(target).withdraw(amount, address(this), address(this));
                 }
                 emit AllocationWithdrawn(target, address(this), amount, withdrawKey);
