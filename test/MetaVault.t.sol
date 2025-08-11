@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
-import {LogarithmVault} from "managed_basis/src/vault/LogarithmVault.sol";
+import {LogarithmVault} from "managed_basis/vault/LogarithmVault.sol";
 import {MockStrategy} from "test/mock/MockStrategy.sol";
 import {VaultRegistry} from "src/VaultRegistry.sol";
 import {MetaVault} from "src/MetaVault.sol";
@@ -86,12 +86,29 @@ contract MetaVaultTest is Test {
     function test_prod_nonstandard_tokemak() public {
         vm.createSelectFork("base", 33579002);
         MetaVault newMetaVault = new MetaVault();
-        VaultFactory factory = VaultFactory(0x6Ea41B6Ef80153B2Dc5AddF2594C10bB53F605E0);
+        VaultFactory prodFactory = VaultFactory(0x6Ea41B6Ef80153B2Dc5AddF2594C10bB53F605E0);
         vm.startPrank(0xd1DD21D53eC43C8FE378E51029Aa3F380b229c98);
-        factory.upgradeTo(address(newMetaVault));
-        MetaVault metaVault = MetaVault(0xd275fBD6882C7c94b36292251ECA69BcCb87D8ad);
+        prodFactory.upgradeTo(address(newMetaVault));
+        MetaVault prodMetaVault = MetaVault(0xd275fBD6882C7c94b36292251ECA69BcCb87D8ad);
         vm.startPrank(0xd7ac0DAe994E1d1EdbbDe130f6c6F1a6D907cA08);
-        metaVault.deposit(3852_880_000, 0xd7ac0DAe994E1d1EdbbDe130f6c6F1a6D907cA08);
+        prodMetaVault.deposit(3852_880_000, 0xd7ac0DAe994E1d1EdbbDe130f6c6F1a6D907cA08);
+        vm.stopPrank();
+    }
+
+    function test_prod_nonstandard_maxWithdraw() public {
+        vm.createSelectFork("base", 34040064);
+        MetaVault newMetaVault = new MetaVault();
+        VaultFactory prodFactory = VaultFactory(0x6Ea41B6Ef80153B2Dc5AddF2594C10bB53F605E0);
+        vm.startPrank(0xd1DD21D53eC43C8FE378E51029Aa3F380b229c98);
+        prodFactory.upgradeTo(address(newMetaVault));
+        vm.stopPrank();
+        MetaVault prodMetaVault = MetaVault(0xd275fBD6882C7c94b36292251ECA69BcCb87D8ad);
+        vm.startPrank(0xF600833BDB1150442B4d355d52653B3896140827);
+        address[] memory targets = new address[](1);
+        targets[0] = address(0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 5686877890095;
+        prodMetaVault.redeemAllocations(targets, amounts);
         vm.stopPrank();
     }
 
