@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 interface IMetaVault {
     function initialize(
-        address VaultRegistry_,
+        address vaultRegistry_,
         address owner_,
         address asset_,
         string calldata name_,
