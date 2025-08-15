@@ -4,6 +4,11 @@ out = "out"
 libs = ["lib"]
 solc = '0.8.30'
 evm_version = 'cancun'
+optimizer = true
+optimizer_runs = 200
+
+[lint]
+exclude = ["lib/", "test/"]
 
 [rpc_endpoints]
 # All available network keywords:
