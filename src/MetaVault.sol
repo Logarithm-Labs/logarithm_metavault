@@ -510,38 +510,39 @@ contract MetaVault is Initializable, ManagedVault {
     }
 
     /// @notice Assets that are allocated
-    function allocatedAssets() public view returns (uint256) {
+    function allocatedAssets() public view returns (uint256 assets) {
         address[] memory _allocatedVaults = allocatedVaults();
         uint256 len = _allocatedVaults.length;
-        uint256 assets;
         for (uint256 i; i < len;) {
             address allocatedVault = _allocatedVaults[i];
-            uint256 shares = IERC4626(allocatedVault).balanceOf(address(this));
-            if (shares > 0) {
-                // Try to use previewRedeem, but catch if it's not a pure view function
-                try IERC4626(allocatedVault).previewRedeem(shares) returns (uint256 previewAssets) {
-                    unchecked {
-                        assets += previewAssets;
-                    }
-                } catch {
-                    // Fallback: use convertToAssets if previewRedeem fails
-                    // This is a safer alternative that should work for most ERC4626 vaults
-                    try IERC4626(allocatedVault).convertToAssets(shares) returns (uint256 convertedAssets) {
-                        unchecked {
-                            assets += convertedAssets;
-                        }
-                    } catch {
-                        // If both fail, we can't calculate the value, so we skip this vault
-                        // This is a defensive approach to prevent the entire function from reverting
-                        unchecked {
-                            ++i;
-                        }
-                        continue;
-                    }
-                }
-            }
             unchecked {
+                assets += allocatedAssets(allocatedVault);
                 ++i;
+            }
+        }
+        return assets;
+    }
+
+    /// @notice Assets that are allocated to a specific vault
+    function allocatedAssets(address vault) public view returns (uint256 assets) {
+        uint256 shares = IERC4626(vault).balanceOf(address(this));
+        if (shares == 0) {
+            return 0;
+        }
+        if (shares > 0) {
+            // Try to use previewRedeem, but catch if it's not a pure view function
+            try IERC4626(vault).previewRedeem(shares) returns (uint256 previewAssets) {
+                unchecked {
+                    assets = previewAssets;
+                }
+            } catch {
+                // Fallback: use convertToAssets if previewRedeem fails
+                // This is a safer alternative that should work for most ERC4626 vaults
+                try IERC4626(vault).convertToAssets(shares) returns (uint256 convertedAssets) {
+                    unchecked {
+                        assets = convertedAssets;
+                    }
+                } catch {}
             }
         }
         return assets;
