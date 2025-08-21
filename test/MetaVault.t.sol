@@ -503,4 +503,317 @@ contract MetaVaultTest is Test {
         address[] memory claimableTargets = vault.claimableTargets();
         assertEq(claimableTargets.length, 0, "no claimable vaults");
     }
+
+    /*//////////////////////////////////////////////////////////////
+                    ENHANCED ABSTRACT ALLOCATION MANAGER TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_allocate_usingBatchFunctions() public {
+        vm.startPrank(curator);
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVault_1);
+        targets[1] = address(logVault_2);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = THOUSANDx6;
+        amounts[1] = 2 * THOUSANDx6;
+
+        vault.allocate(targets, amounts);
+
+        assertEq(logVault_1.balanceOf(address(vault)), THOUSANDx6, "First target allocation");
+        assertEq(logVault_2.balanceOf(address(vault)), 2 * THOUSANDx6, "Second target allocation");
+        assertEq(vault.allocatedTargets().length, 2, "Should have two allocated targets");
+        assertEq(vault.allocatedAssets(), 3 * THOUSANDx6, "Total allocated assets");
+    }
+
+    function test_withdrawAllocationBatch_integration() public afterAllocated {
+        vm.startPrank(curator);
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVault_1);
+        targets[1] = address(logVault_2);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = THOUSANDx6 / 2;
+        amounts[1] = THOUSANDx6 / 2;
+
+        vault.withdrawAllocations(targets, amounts);
+
+        assertEq(logVault_1.balanceOf(address(vault)), THOUSANDx6 / 2, "Remaining shares for logVault_1");
+        assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6 / 2, "Remaining shares for logVault_2");
+        assertEq(vault.allocatedTargets().length, 2, "Should still have both targets");
+        assertEq(vault.allocatedAssets(), THOUSANDx6, "Total allocated assets should be reduced");
+    }
+
+    function test_redeemAllocationBatch_integration() public afterAllocated {
+        vm.startPrank(curator);
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVault_1);
+        targets[1] = address(logVault_2);
+        uint256[] memory shares = new uint256[](2);
+        shares[0] = THOUSANDx6 / 2;
+        shares[1] = THOUSANDx6 / 2;
+
+        vault.redeemAllocations(targets, shares);
+
+        assertEq(logVault_1.balanceOf(address(vault)), THOUSANDx6 / 2, "Remaining shares for logVault_1");
+        assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6 / 2, "Remaining shares for logVault_2");
+        assertEq(vault.allocatedTargets().length, 2, "Should still have both targets");
+    }
+
+    function test_claimAllocations_cleanup() public afterAllocated {
+        // Make strategies utilize assets
+        strategy_1.utilize(THOUSANDx6);
+        strategy_2.utilize(THOUSANDx6);
+
+        vm.startPrank(curator);
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVault_1);
+        targets[1] = address(logVault_2);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = THOUSANDx6;
+        amounts[1] = THOUSANDx6;
+
+        vault.withdrawAllocations(targets, amounts);
+
+        // Verify claimable targets
+        assertEq(vault.claimableTargets().length, 2, "Should have two claimable targets");
+
+        // Deutilize to make claimable
+        strategy_1.deutilize(THOUSANDx6);
+        strategy_2.deutilize(THOUSANDx6);
+
+        // Claim allocations
+        vault.claimAllocations();
+
+        // Verify cleanup
+        assertEq(vault.claimableTargets().length, 0, "Should have no claimable targets after claiming");
+        assertEq(vault.allocatedTargets().length, 0, "Should have no allocated targets after claiming");
+
+        // Verify withdraw keys cleanup
+        assertEq(vault.withdrawKeysFor(address(logVault_1)).length, 0, "Should have no withdraw keys for logVault_1");
+        assertEq(vault.withdrawKeysFor(address(logVault_2)).length, 0, "Should have no withdraw keys for logVault_2");
+    }
+
+    function test_allocatedAssets_perTarget() public afterAllocated {
+        uint256 allocatedForTarget1 = vault.allocatedAssetsFor(address(logVault_1));
+        assertEq(allocatedForTarget1, THOUSANDx6, "Allocated assets for logVault_1");
+
+        uint256 allocatedForTarget2 = vault.allocatedAssetsFor(address(logVault_2));
+        assertEq(allocatedForTarget2, THOUSANDx6, "Allocated assets for logVault_2");
+
+        uint256 totalAllocated = vault.allocatedAssets();
+        assertEq(totalAllocated, 2 * THOUSANDx6, "Total allocated assets");
+    }
+
+    function test_allocationPendingAndClaimable_states() public afterAllocated {
+        // Initially no pending or claimable
+        (uint256 pending, uint256 claimable) = vault.allocationPendingAndClaimable();
+        assertEq(pending, 0, "Should have no pending assets initially");
+        assertEq(claimable, 0, "Should have no claimable assets initially");
+
+        // Make strategy utilize assets and withdraw
+        strategy_1.utilize(THOUSANDx6);
+        vm.startPrank(curator);
+        address[] memory targets = new address[](1);
+        targets[0] = address(logVault_1);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = THOUSANDx6;
+        vault.withdrawAllocations(targets, amounts);
+
+        // Check pending state
+        (pending, claimable) = vault.allocationPendingAndClaimable();
+        assertEq(pending, THOUSANDx6, "Should have pending assets");
+        assertEq(claimable, 0, "Should have no claimable assets yet");
+
+        // Deutilize to make claimable
+        strategy_1.deutilize(THOUSANDx6);
+
+        // Check claimable state
+        (pending, claimable) = vault.allocationPendingAndClaimable();
+        assertEq(pending, 0, "Should have no pending assets after deutilize");
+        assertEq(claimable, THOUSANDx6, "Should have claimable assets after deutilize");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            EDGE CASE TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_allocate_zeroAmounts() public {
+        vm.startPrank(curator);
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVault_1);
+        targets[1] = address(logVault_2);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 0;
+        amounts[1] = 0;
+
+        vault.allocate(targets, amounts);
+
+        assertEq(logVault_1.balanceOf(address(vault)), 0, "Should not allocate for zero amount");
+        assertEq(logVault_2.balanceOf(address(vault)), 0, "Should not allocate for zero amount");
+        assertEq(vault.allocatedTargets().length, 0, "Should have no allocated targets for zero amounts");
+    }
+
+    function test_withdrawAllocation_zeroAmounts() public afterAllocated {
+        vm.startPrank(curator);
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVault_1);
+        targets[1] = address(logVault_2);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 0;
+        amounts[1] = 0;
+
+        vault.withdrawAllocations(targets, amounts);
+
+        assertEq(logVault_1.balanceOf(address(vault)), THOUSANDx6, "Should not withdraw for zero amount");
+        assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6, "Should not withdraw for zero amount");
+        assertEq(vault.allocatedTargets().length, 2, "Should still have both targets allocated");
+    }
+
+    function test_redeemAllocation_zeroShares() public afterAllocated {
+        vm.startPrank(curator);
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVault_1);
+        targets[1] = address(logVault_2);
+        uint256[] memory shares = new uint256[](2);
+        shares[0] = 0;
+        shares[1] = 0;
+
+        vault.redeemAllocations(targets, shares);
+
+        assertEq(logVault_1.balanceOf(address(vault)), THOUSANDx6, "Should not redeem for zero shares");
+        assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6, "Should not redeem for zero shares");
+        assertEq(vault.allocatedTargets().length, 2, "Should still have both targets allocated");
+    }
+
+    function test_allocate_emptyArrays() public {
+        vm.startPrank(curator);
+        address[] memory targets = new address[](0);
+        uint256[] memory amounts = new uint256[](0);
+
+        vault.allocate(targets, amounts);
+
+        assertEq(vault.allocatedTargets().length, 0, "Should handle empty arrays gracefully");
+        assertEq(vault.allocatedAssets(), 0, "Should have no allocated assets for empty arrays");
+    }
+
+    function test_withdrawAllocation_emptyArrays() public afterAllocated {
+        vm.startPrank(curator);
+        address[] memory targets = new address[](0);
+        uint256[] memory amounts = new uint256[](0);
+
+        vault.withdrawAllocations(targets, amounts);
+
+        assertEq(vault.allocatedTargets().length, 2, "Should still have both targets allocated");
+        assertEq(vault.allocatedAssets(), 2 * THOUSANDx6, "Should still have allocated assets");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            INTEGRATION TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_fullAllocationLifecycle() public {
+        vm.startPrank(curator);
+
+        // 1. Initial allocation
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVault_1);
+        targets[1] = address(logVault_2);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = THOUSANDx6;
+        amounts[1] = THOUSANDx6;
+
+        vault.allocate(targets, amounts);
+        assertEq(vault.allocatedAssets(), 2 * THOUSANDx6, "Initial allocation");
+
+        // 2. Partial withdrawal
+        address[] memory withdrawTargets = new address[](1);
+        withdrawTargets[0] = address(logVault_1);
+        uint256[] memory withdrawAmounts = new uint256[](1);
+        withdrawAmounts[0] = THOUSANDx6 / 2;
+
+        vault.withdrawAllocations(withdrawTargets, withdrawAmounts);
+        assertEq(logVault_1.balanceOf(address(vault)), THOUSANDx6 / 2, "Partial withdrawal");
+        assertEq(vault.allocatedAssets(), 3 * THOUSANDx6 / 2, "Reduced allocated assets");
+
+        // 3. Partial redemption
+        address[] memory redeemTargets = new address[](1);
+        redeemTargets[0] = address(logVault_2);
+        uint256[] memory redeemShares = new uint256[](1);
+        redeemShares[0] = THOUSANDx6 / 2;
+
+        vault.redeemAllocations(redeemTargets, redeemShares);
+        assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6 / 2, "Partial redemption");
+        assertEq(vault.allocatedAssets(), THOUSANDx6, "Further reduced allocated assets");
+
+        // 4. Final state verification
+        assertEq(vault.allocatedTargets().length, 2, "Should still have both targets");
+        assertEq(logVault_1.balanceOf(address(vault)), THOUSANDx6 / 2, "Final logVault_1 balance");
+        assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6 / 2, "Final logVault_2 balance");
+    }
+
+    function test_claimAllocationsWithExternalInterference() public afterAllocated {
+        // Make strategy utilize assets
+        strategy_1.utilize(THOUSANDx6);
+
+        vm.startPrank(curator);
+        address[] memory targets = new address[](1);
+        targets[0] = address(logVault_1);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = THOUSANDx6;
+        vault.withdrawAllocations(targets, amounts);
+
+        // Verify claimable state
+        assertEq(vault.claimableTargets().length, 1, "Should have one claimable target");
+        bytes32[] memory withdrawKeys = vault.withdrawKeysFor(address(logVault_1));
+        assertEq(withdrawKeys.length, 1, "Should have one withdraw key");
+
+        // Deutilize to make claimable first
+        strategy_1.deutilize(THOUSANDx6);
+
+        // Now simulate external claim
+        vm.startPrank(address(vault));
+        logVault_1.claim(withdrawKeys[0]);
+        vm.stopPrank();
+
+        // Now claim allocations should clean up
+        vault.claimAllocations();
+
+        // Verify cleanup
+        assertEq(vault.claimableTargets().length, 0, "Should have no claimable targets after external claim");
+        assertEq(
+            vault.withdrawKeysFor(address(logVault_1)).length, 0, "Should have no withdraw keys after external claim"
+        );
+        assertEq(vault.allocatedTargets().length, 1, "Should have only logVault_2 allocated");
+    }
+
+    function test_multipleAllocationCycles() public {
+        vm.startPrank(curator);
+
+        // First cycle
+        address[] memory targets = new address[](1);
+        targets[0] = address(logVault_1);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = THOUSANDx6;
+
+        vault.allocate(targets, amounts);
+        assertEq(vault.allocatedAssets(), THOUSANDx6, "First allocation cycle");
+
+        // Withdraw and reallocate
+        vault.withdrawAllocations(targets, amounts);
+        assertEq(vault.allocatedAssets(), 0, "After withdrawal");
+
+        vault.allocate(targets, amounts);
+        assertEq(vault.allocatedAssets(), THOUSANDx6, "Second allocation cycle");
+
+        // Add second target
+        targets = new address[](2);
+        targets[0] = address(logVault_1);
+        targets[1] = address(logVault_2);
+        amounts = new uint256[](2);
+        amounts[0] = 0; // No change to first target
+        amounts[1] = THOUSANDx6; // Add second target
+
+        vault.allocate(targets, amounts);
+        assertEq(vault.allocatedAssets(), 2 * THOUSANDx6, "Third allocation cycle with second target");
+        assertEq(vault.allocatedTargets().length, 2, "Should have two allocated targets");
+    }
 }
