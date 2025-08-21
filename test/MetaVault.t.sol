@@ -127,9 +127,9 @@ contract MetaVaultTest is Test {
         vault.allocate(targets, amounts);
         assertEq(logVault_1.balanceOf(address(vault)), THOUSANDx6);
         assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6);
-        address[] memory allocatedVaults = vault.allocatedVaults();
-        assertEq(allocatedVaults[0], targets[0]);
-        assertEq(allocatedVaults[1], targets[1]);
+        address[] memory allocatedTargets = vault.allocatedTargets();
+        assertEq(allocatedTargets[0], targets[0]);
+        assertEq(allocatedTargets[1], targets[1]);
         assertEq(vault.totalAssets(), 5 * THOUSANDx6);
     }
 
@@ -144,9 +144,9 @@ contract MetaVaultTest is Test {
         vault.allocate(targets, amounts);
         vault.allocate(targets, amounts);
 
-        address[] memory allocatedVaults = vault.allocatedVaults();
-        assertEq(allocatedVaults[0], targets[0]);
-        assertEq(allocatedVaults[1], targets[1]);
+        address[] memory allocatedTargets = vault.allocatedTargets();
+        assertEq(allocatedTargets[0], targets[0]);
+        assertEq(allocatedTargets[1], targets[1]);
         assertEq(vault.totalAssets(), 5000000000);
     }
 
@@ -172,9 +172,9 @@ contract MetaVaultTest is Test {
         vault.withdrawAllocations(targets, amounts);
         assertEq(logVault_1.balanceOf(address(vault)), 0);
         assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6);
-        address[] memory allocatedVaults = vault.allocatedVaults();
-        assertEq(allocatedVaults.length, 1);
-        assertEq(allocatedVaults[0], address(logVault_2));
+        address[] memory allocatedTargets = vault.allocatedTargets();
+        assertEq(allocatedTargets.length, 1);
+        assertEq(allocatedTargets[0], address(logVault_2));
         assertEq(vault.totalAssets(), 5 * THOUSANDx6);
 
         assertEq(vault.idleAssets(), 4 * THOUSANDx6);
@@ -192,30 +192,30 @@ contract MetaVaultTest is Test {
         assertEq(logVault_1.balanceOf(address(vault)), 0);
         assertEq(logVault_2.balanceOf(address(vault)), THOUSANDx6);
 
-        address[] memory allocatedVaults = vault.allocatedVaults();
-        assertEq(allocatedVaults.length, 1);
-        assertEq(allocatedVaults[0], address(logVault_2));
+        address[] memory allocatedTargets = vault.allocatedTargets();
+        assertEq(allocatedTargets.length, 1);
+        assertEq(allocatedTargets[0], address(logVault_2));
 
-        address[] memory claimableVaults = vault.claimableVaults();
-        assertEq(claimableVaults.length, 1);
-        assertEq(claimableVaults[0], address(logVault_1));
+        address[] memory claimableTargets = vault.claimableTargets();
+        assertEq(claimableTargets.length, 1);
+        assertEq(claimableTargets[0], address(logVault_1));
 
         assertEq(vault.allocatedAssets(), THOUSANDx6);
-        (uint256 requestedAssets, uint256 claimableAssets) = vault.getWithdrawalsFromAllocation();
+        (uint256 requestedAssets, uint256 claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, 1000000000);
         assertEq(claimableAssets, 0);
         assertEq(vault.totalAssets(), 4 * THOUSANDx6 + 1000000000);
         assertEq(vault.idleAssets(), 3 * THOUSANDx6);
 
         strategy_1.deutilize(THOUSANDx6);
-        (requestedAssets, claimableAssets) = vault.getWithdrawalsFromAllocation();
+        (requestedAssets, claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, 0);
         assertEq(claimableAssets, 1000000000);
         assertEq(vault.totalAssets(), 4 * THOUSANDx6 + 1000000000);
         assertEq(vault.idleAssets(), 3 * THOUSANDx6 + 1000000000, "idle assets should be increased");
 
         vault.claimAllocations();
-        (requestedAssets, claimableAssets) = vault.getWithdrawalsFromAllocation();
+        (requestedAssets, claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, 0);
         assertEq(claimableAssets, 0);
         // last redeem receives the whole
@@ -365,7 +365,7 @@ contract MetaVaultTest is Test {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = THOUSANDx6;
         vault.withdrawAllocations(targets, amounts);
-        (uint256 requestedAssets, uint256 claimableAssets) = vault.getWithdrawalsFromAllocation();
+        (uint256 requestedAssets, uint256 claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, 0, "no requested");
         assertEq(claimableAssets, 0, "no claimable allocation");
 
@@ -402,13 +402,13 @@ contract MetaVaultTest is Test {
         amounts[0] = THOUSANDx6;
         vault.withdrawAllocations(targets, amounts);
         assertEq(logVault_1.balanceOf(address(vault)), 0, "0 shares");
-        (uint256 requestedAssets, uint256 claimableAssets) = vault.getWithdrawalsFromAllocation();
+        (uint256 requestedAssets, uint256 claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, THOUSANDx6, "THOUSANDx6 requested");
         assertEq(claimableAssets, 0, "no claimable allocation");
 
         uint256 processedAmount = THOUSANDx6 / 4;
         strategy_1.deutilize(processedAmount);
-        (requestedAssets, claimableAssets) = vault.getWithdrawalsFromAllocation();
+        (requestedAssets, claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, THOUSANDx6, "pending THOUSANDx6");
         assertEq(claimableAssets, 0, "0 claimable allocation");
 
@@ -419,7 +419,7 @@ contract MetaVaultTest is Test {
         assertEq(vault.pendingWithdrawals(), 0, "no pending withdrawals");
 
         strategy_1.deutilize(THOUSANDx6 - processedAmount);
-        (requestedAssets, claimableAssets) = vault.getWithdrawalsFromAllocation();
+        (requestedAssets, claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, 0, "pending -");
         assertEq(claimableAssets, THOUSANDx6, "THOUSANDx6 claimable allocation");
 
@@ -456,13 +456,13 @@ contract MetaVaultTest is Test {
         amounts[0] = THOUSANDx6;
         vault.withdrawAllocations(targets, amounts);
         assertEq(logVault_1.balanceOf(address(vault)), 0, "0 shares");
-        (uint256 requestedAssets, uint256 claimableAssets) = vault.getWithdrawalsFromAllocation();
+        (uint256 requestedAssets, uint256 claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, THOUSANDx6, "THOUSANDx6 requested");
         assertEq(claimableAssets, 0, "no claimable allocation");
 
         uint256 processedAmount = THOUSANDx6 / 4;
         strategy_1.deutilize(processedAmount);
-        (requestedAssets, claimableAssets) = vault.getWithdrawalsFromAllocation();
+        (requestedAssets, claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, THOUSANDx6, "pending THOUSANDx6");
         assertEq(claimableAssets, 0, "0 claimable allocation");
 
@@ -476,12 +476,12 @@ contract MetaVaultTest is Test {
 
         // user can claim the assets
         vm.startPrank(user);
-        bytes32[] memory withdrawKeys = vault.allocationWithdrawKeys(address(logVault_1));
+        bytes32[] memory withdrawKeys = vault.withdrawKeysFor(address(logVault_1));
         for (uint256 i = 0; i < withdrawKeys.length; i++) {
             logVault_1.claim(withdrawKeys[i]);
         }
 
-        (requestedAssets, claimableAssets) = vault.getWithdrawalsFromAllocation();
+        (requestedAssets, claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, 0, "request assets should be 0");
         assertEq(claimableAssets, 0, "claimable assets should be 0");
 
@@ -497,10 +497,10 @@ contract MetaVaultTest is Test {
         balAfter = asset.balanceOf(user);
         assertEq(balAfter - balBefore, amount, "user balance should be increased");
 
-        bytes32[] memory withdrawKeysAfter = vault.allocationWithdrawKeys(address(logVault_1));
+        bytes32[] memory withdrawKeysAfter = vault.withdrawKeysFor(address(logVault_1));
         assertEq(withdrawKeysAfter.length, 0, "0 withdraw key");
 
-        address[] memory claimableVaults = vault.claimableVaults();
-        assertEq(claimableVaults.length, 0, "no claimable vaults");
+        address[] memory claimableTargets = vault.claimableTargets();
+        assertEq(claimableTargets.length, 0, "no claimable vaults");
     }
 }

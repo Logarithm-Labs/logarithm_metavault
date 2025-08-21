@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
+
 import {MetaVault} from "./MetaVault.sol";
 
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-
 contract MigrationMetaVault is MetaVault {
+    using SafeERC20 for IERC20;
+
     error MigrationExceededMaxShares();
     error MigrationZeroShares();
 
@@ -21,7 +25,7 @@ contract MigrationMetaVault is MetaVault {
 
         uint256 assets = IERC4626(targetVault).previewRedeem(targetShares);
         uint256 shares = previewDeposit(assets);
-        IERC4626(targetVault).transferFrom(_msgSender(), address(this), targetShares);
+        IERC20(targetVault).safeTransferFrom(_msgSender(), address(this), targetShares);
         _updateHwmDeposit(assets);
         _mint(receiver, shares);
 
