@@ -901,8 +901,8 @@ contract MetaVaultTest is Test {
         vm.stopPrank();
 
         // Check that logVault_1 was used first (lower exit cost)
-        uint256 logVault1Idle = VaultAdapter.tryGetIdleAssets(address(logVault_1));
-        uint256 logVault2Idle = VaultAdapter.tryGetIdleAssets(address(logVault_2));
+        uint256 logVault1Idle = VaultAdapter.tryIdleAssets(address(logVault_1));
+        uint256 logVault2Idle = VaultAdapter.tryIdleAssets(address(logVault_2));
 
         assertLt(logVault1Idle, THOUSANDx6, "logVault_1 idle should be reduced first");
         assertEq(logVault2Idle, THOUSANDx6, "logVault_2 idle should remain unchanged");

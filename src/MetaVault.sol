@@ -210,7 +210,7 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
                 address target = targets[i];
 
                 // Check if target vault has idle assets that can be withdrawn immediately
-                uint256 targetIdleAssets = VaultAdapter.tryGetIdleAssets(target);
+                uint256 targetIdleAssets = VaultAdapter.tryIdleAssets(target);
                 if (targetIdleAssets > 0) {
                     uint256 assetsToWithdraw = Math.min(additionalNeeded, targetIdleAssets);
 
@@ -397,8 +397,8 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
         // Simple bubble sort by exit cost (ascending)
         for (uint256 i; i < targetsLength - 1;) {
             for (uint256 j; j < targetsLength - i - 1;) {
-                uint256 currentExitCost = VaultAdapter.tryGetExitCost(targets[j]);
-                uint256 nextExitCost = VaultAdapter.tryGetExitCost(targets[j + 1]);
+                uint256 currentExitCost = VaultAdapter.tryExitCost(targets[j]);
+                uint256 nextExitCost = VaultAdapter.tryExitCost(targets[j + 1]);
 
                 if (currentExitCost > nextExitCost) {
                     // Swap
@@ -434,7 +434,7 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
         uint256 len = targets.length;
         for (uint256 i; i < len;) {
             unchecked {
-                totalIdle += VaultAdapter.tryGetIdleAssets(targets[i]);
+                totalIdle += VaultAdapter.tryIdleAssets(targets[i]);
                 ++i;
             }
         }

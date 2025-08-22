@@ -95,7 +95,7 @@ library VaultAdapter {
         return IERC4626(target).asset();
     }
 
-    function tryGetMaxWithdraw(address target, address holder) internal view returns (uint256) {
+    function tryMaxWithdraw(address target, address holder) internal view returns (uint256) {
         try ILogarithmVault(target).maxRequestWithdraw(holder) returns (uint256 maxWithdraw) {
             return maxWithdraw;
         } catch {
@@ -103,7 +103,7 @@ library VaultAdapter {
         }
     }
 
-    function tryGetMaxRedeem(address target, address holder) internal view returns (uint256) {
+    function tryMaxRedeem(address target, address holder) internal view returns (uint256) {
         try ILogarithmVault(target).maxRequestRedeem(holder) returns (uint256 maxRedeem) {
             return maxRedeem;
         } catch {
@@ -113,7 +113,7 @@ library VaultAdapter {
 
     /// @notice Returns the idle assets available in a target vault.
     /// @dev Returns 0 if the target doesn't support idle assets (e.g., standard ERC4626 vaults).
-    function tryGetIdleAssets(address target) internal view returns (uint256) {
+    function tryIdleAssets(address target) internal view returns (uint256) {
         try ILogarithmVault(target).idleAssets() returns (uint256 idleAssets) {
             return idleAssets;
         } catch {
@@ -124,7 +124,7 @@ library VaultAdapter {
 
     /// @notice Returns the entry cost for a target vault.
     /// @dev Returns 0 if the target doesn't support entry costs (e.g., standard ERC4626 vaults).
-    function tryGetEntryCost(address target) internal view returns (uint256) {
+    function tryEntryCost(address target) internal view returns (uint256) {
         try ILogarithmVault(target).entryCost() returns (uint256 entryCost) {
             return entryCost;
         } catch {
@@ -135,7 +135,7 @@ library VaultAdapter {
 
     /// @notice Returns the exit cost for a target vault.
     /// @dev Returns 0 if the target doesn't support exit costs (e.g., standard ERC4626 vaults).
-    function tryGetExitCost(address target) internal view returns (uint256) {
+    function tryExitCost(address target) internal view returns (uint256) {
         try ILogarithmVault(target).exitCost() returns (uint256 exitCost) {
             return exitCost;
         } catch {
