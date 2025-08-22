@@ -65,8 +65,12 @@ abstract contract AllocationManager {
         if (assets == 0) return;
         IERC20(_allocationAsset()).forceApprove(target, assets);
         uint256 shares = VaultAdapter.deposit(target, assets, address(this));
-        _getAllocationStorage().allocatedTargets.add(target);
+        _addAllocatedTarget(target);
         emit Allocated(target, assets, shares);
+    }
+
+    function _addAllocatedTarget(address target) internal virtual {
+        _getAllocationStorage().allocatedTargets.add(target);
     }
 
     function _allocateBatch(address[] memory targets, uint256[] memory assets) internal virtual {

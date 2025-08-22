@@ -80,6 +80,11 @@ library VaultAdapter {
         }
     }
 
+    /// @notice Convert assets to shares on a target vault.
+    function convertToShares(address target, uint256 assets) internal view returns (uint256 shares) {
+        return IERC4626(target).convertToShares(assets);
+    }
+
     /// @notice Preview shares for a given amount of assets on a target vault.
     /// @dev Tries previewAssets first; falls back to convertToShares.
     function tryPreviewShares(address target, uint256 assets) internal view returns (uint256 shares) {
@@ -88,6 +93,11 @@ library VaultAdapter {
         } catch {
             return IERC4626(target).convertToShares(assets);
         }
+    }
+
+    /// @notice Convert shares to assets on a target vault.
+    function convertToAssets(address target, uint256 shares) internal view returns (uint256 assets) {
+        return IERC4626(target).convertToAssets(shares);
     }
 
     /// @notice Returns the current share balance held by holder for the target vault.
@@ -100,7 +110,7 @@ library VaultAdapter {
         return IERC4626(target).asset();
     }
 
-    function tryMaxWithdraw(address target, address holder) internal view returns (uint256) {
+    function tryMaxRequestWithdraw(address target, address holder) internal view returns (uint256) {
         try ILogarithmVault(target).maxRequestWithdraw(holder) returns (uint256 maxWithdraw) {
             return maxWithdraw;
         } catch {
@@ -108,12 +118,20 @@ library VaultAdapter {
         }
     }
 
-    function tryMaxRedeem(address target, address holder) internal view returns (uint256) {
+    function tryMaxRequestRedeem(address target, address holder) internal view returns (uint256) {
         try ILogarithmVault(target).maxRequestRedeem(holder) returns (uint256 maxRedeem) {
             return maxRedeem;
         } catch {
             return IERC4626(target).maxRedeem(holder);
         }
+    }
+
+    function maxWithdraw(address target, address holder) internal view returns (uint256) {
+        return IERC4626(target).maxWithdraw(holder);
+    }
+
+    function maxRedeem(address target, address holder) internal view returns (uint256) {
+        return IERC4626(target).maxRedeem(holder);
     }
 
     /// @notice Returns the idle assets available in a target vault.
