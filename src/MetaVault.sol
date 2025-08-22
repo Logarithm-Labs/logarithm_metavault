@@ -11,7 +11,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {NoncesUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/NoncesUpgradeable.sol";
 
 import {ManagedVault} from "managed_basis/vault/ManagedVault.sol";
-import {AbstractAllocationManager} from "./AbstractAllocationManager.sol";
+import {AllocationManager} from "./AllocationManager.sol";
 import {VaultAdapter} from "./VaultAdapter.sol";
 
 import {IVaultRegistry} from "src/interfaces/IVaultRegistry.sol";
@@ -21,7 +21,7 @@ import {IVaultRegistry} from "src/interfaces/IVaultRegistry.sol";
 /// @notice Vault implementation that is used by vault factory
 /// @dev This smart contract is for allocating/deallocating assets to/from the vaults
 /// @dev For the target vaults, they are LogarithmVaults (Async-one) and standard ERC4626 vaults
-contract MetaVault is Initializable, ManagedVault, AbstractAllocationManager, NoncesUpgradeable {
+contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgradeable {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using SafeERC20 for IERC20;

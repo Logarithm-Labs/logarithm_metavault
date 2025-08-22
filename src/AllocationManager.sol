@@ -8,10 +8,10 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {VaultAdapter} from "./VaultAdapter.sol";
 
-/// @title AbstractAllocationManager
+/// @title AllocationManager
 /// @notice Generalized allocation/deallocation/claim helper for managing positions across heterogeneous vaults
 /// @dev Supports both standard ERC4626 and semi-async vaults implementing ISemiAsyncRedeemVault
-abstract contract AbstractAllocationManager {
+abstract contract AllocationManager {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using SafeERC20 for IERC20;
@@ -42,7 +42,7 @@ abstract contract AbstractAllocationManager {
         mapping(address target => mapping(bytes32 key => uint256 assets)) requestedAssetsByKey;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("logarithm.storage.AbstractAllocationManager")) - 1)) & ~bytes32(uint256(0xff))
+    // keccak256(abi.encode(uint256(keccak256("logarithm.storage.AllocationManager")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant ALLOCATION_STORAGE_LOCATION =
         0xfebea8c17ed7d235908df1841c550752fa884affd713fb9d9fb47bc0b16bc700;
 
