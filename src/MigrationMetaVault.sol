@@ -12,7 +12,7 @@ contract MigrationMetaVault is MetaVault {
     using SafeERC20 for IERC20;
 
     event Migrated(
-        address indexed owner, address indexed targetVault, uint256 targetShares, uint256 assets, uint256 shares
+        address indexed owner, address indexed targetVault, uint256 targetShares, uint256 targetAssets, uint256 shares
     );
 
     error MigrationExceededMaxShares();
@@ -29,22 +29,16 @@ contract MigrationMetaVault is MetaVault {
             revert MigrationExceededMaxShares();
         }
 
-        (uint256 assets, uint256 shares) = convertTargetShares(targetVault, targetShares);
-        _migrate(receiver, _msgSender(), targetVault, targetShares, assets, shares);
-        _withdrawTargetIdleAssets(targetVault);
+        // derive target assets from target shares
+        uint256 targetAssets = VaultAdapter.tryPreviewAssets(targetVault, targetShares);
+
+        // derive meta vault shares from target assets
+        uint256 shares = convertToShares(targetAssets);
+
+        _migrate(receiver, _msgSender(), targetVault, targetShares, targetAssets, shares);
+        _withdrawTargetIdleAssets(targetVault, targetAssets);
 
         return shares;
-    }
-
-    /// @notice Convert target shares to assets and shares
-    function convertTargetShares(address targetVault, uint256 targetShares)
-        public
-        view
-        returns (uint256 assets, uint256 shares)
-    {
-        assets = VaultAdapter.tryPreviewAssets(targetVault, targetShares);
-        // don't use preview functions to avoid entry cost
-        shares = convertToShares(assets);
     }
 
     /// @dev Migrate shares from target vault to meta vault
@@ -53,22 +47,23 @@ contract MigrationMetaVault is MetaVault {
         address owner,
         address targetVault,
         uint256 targetShares,
-        uint256 assets,
+        uint256 targetAssets,
         uint256 shares
     ) internal virtual {
         IERC20(targetVault).safeTransferFrom(owner, address(this), targetShares);
         _addAllocatedTarget(targetVault);
-        _updateHwmDeposit(assets);
+        _updateHwmDeposit(targetAssets);
         _mint(receiver, shares);
 
-        emit Migrated(owner, targetVault, targetShares, assets, shares);
+        emit Migrated(owner, targetVault, targetShares, targetAssets, shares);
     }
 
     /// @dev Withdraw idle assets from target vault to avoid duplicated consideration with multiple migrations
-    function _withdrawTargetIdleAssets(address targetVault) internal virtual {
-        uint256 immediateAssets = VaultAdapter.maxWithdraw(targetVault, address(this));
-        if (immediateAssets > 0) {
-            _withdrawAllocation(targetVault, immediateAssets, address(this));
+    function _withdrawTargetIdleAssets(address targetVault, uint256 targetAssets) internal virtual {
+        uint256 idleAssets = VaultAdapter.tryIdleAssets(targetVault);
+        uint256 amountToWithdraw = Math.min(idleAssets, targetAssets);
+        if (amountToWithdraw > 0) {
+            _withdrawAllocation(targetVault, amountToWithdraw, address(this));
         }
     }
 }

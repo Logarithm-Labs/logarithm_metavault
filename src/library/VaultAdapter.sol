@@ -67,7 +67,11 @@ library VaultAdapter {
     /// @notice Claims assets for a given withdraw key on a target vault.
     /// @dev Reverts if async interface is not implemented. Callers should check tryIsClaimable first.
     function tryClaim(address target, bytes32 withdrawKey) internal returns (uint256 assets) {
-        return ILogarithmVault(target).claim(withdrawKey);
+        try ILogarithmVault(target).claim(withdrawKey) returns (uint256 assets) {
+            return assets;
+        } catch {
+            return 0;
+        }
     }
 
     /// @notice Preview assets for a given amount of shares on a target vault.
@@ -111,18 +115,18 @@ library VaultAdapter {
     }
 
     function tryMaxRequestWithdraw(address target, address holder) internal view returns (uint256) {
-        try ILogarithmVault(target).maxRequestWithdraw(holder) returns (uint256 maxWithdraw) {
-            return maxWithdraw;
+        try ILogarithmVault(target).maxRequestWithdraw(holder) returns (uint256 assets) {
+            return assets;
         } catch {
-            return IERC4626(target).maxWithdraw(holder);
+            return 0;
         }
     }
 
     function tryMaxRequestRedeem(address target, address holder) internal view returns (uint256) {
-        try ILogarithmVault(target).maxRequestRedeem(holder) returns (uint256 maxRedeem) {
-            return maxRedeem;
+        try ILogarithmVault(target).maxRequestRedeem(holder) returns (uint256 shares) {
+            return shares;
         } catch {
-            return IERC4626(target).maxRedeem(holder);
+            return 0;
         }
     }
 
