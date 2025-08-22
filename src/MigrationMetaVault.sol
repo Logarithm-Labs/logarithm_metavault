@@ -24,7 +24,7 @@ contract MigrationMetaVault is MetaVault {
         }
 
         uint256 assets = VaultAdapter.tryPreviewAssets(targetVault, targetShares);
-        uint256 shares = previewDeposit(assets);
+        uint256 shares = convertToShares(assets);
         IERC20(targetVault).safeTransferFrom(_msgSender(), address(this), targetShares);
         _updateHwmDeposit(assets);
         _mint(receiver, shares);
