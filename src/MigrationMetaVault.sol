@@ -2,10 +2,10 @@
 pragma solidity ^0.8.0;
 
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 
 import {MetaVault} from "./MetaVault.sol";
+import {VaultAdapter} from "./VaultAdapter.sol";
 
 contract MigrationMetaVault is MetaVault {
     using SafeERC20 for IERC20;
@@ -18,12 +18,12 @@ contract MigrationMetaVault is MetaVault {
             revert MigrationZeroShares();
         }
         _validateTarget(targetVault);
-        uint256 maxShares = IERC4626(targetVault).balanceOf(_msgSender());
+        uint256 maxShares = VaultAdapter.shareBalanceOf(targetVault, _msgSender());
         if (targetShares > maxShares) {
             revert MigrationExceededMaxShares();
         }
 
-        uint256 assets = IERC4626(targetVault).previewRedeem(targetShares);
+        uint256 assets = VaultAdapter.tryPreviewAssets(targetVault, targetShares);
         uint256 shares = previewDeposit(assets);
         IERC20(targetVault).safeTransferFrom(_msgSender(), address(this), targetShares);
         _updateHwmDeposit(assets);

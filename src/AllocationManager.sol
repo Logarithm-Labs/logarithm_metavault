@@ -2,7 +2,6 @@
 pragma solidity ^0.8.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -65,7 +64,7 @@ abstract contract AllocationManager {
     function _allocate(address target, uint256 assets) internal virtual {
         if (assets == 0) return;
         IERC20(_allocationAsset()).forceApprove(target, assets);
-        uint256 shares = IERC4626(target).deposit(assets, address(this));
+        uint256 shares = VaultAdapter.deposit(target, assets, address(this));
         _getAllocationStorage().allocatedTargets.add(target);
         emit Allocated(target, assets, shares);
     }
@@ -221,10 +220,11 @@ abstract contract AllocationManager {
     }
 
     function allocatedAssetsFor(address target) public view returns (uint256 assets) {
-        uint256 shares = IERC4626(target).balanceOf(address(this));
+        uint256 shares = VaultAdapter.shareBalanceOf(target, address(this));
         if (shares > 0) {
-            assets += VaultAdapter.tryPreviewAssets(target, shares);
+            assets = VaultAdapter.tryPreviewAssets(target, shares);
         }
+        return assets;
     }
 
     /// @notice Totals across outstanding withdraw keys tracked by this manager
@@ -271,7 +271,7 @@ abstract contract AllocationManager {
     }
 
     function _maybePruneAllocated(address target) private {
-        if (IERC4626(target).balanceOf(address(this)) == 0) {
+        if (VaultAdapter.shareBalanceOf(target, address(this)) == 0) {
             _getAllocationStorage().allocatedTargets.remove(target);
         }
     }

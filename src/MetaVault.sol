@@ -130,7 +130,7 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
         uint256 len = _allocatedTargets.length;
         for (uint256 i; i < len;) {
             address target = _allocatedTargets[i];
-            uint256 shares = IERC4626(target).balanceOf(address(this));
+            uint256 shares = VaultAdapter.shareBalanceOf(target, address(this));
             _redeemAllocation(target, shares, address(this));
             unchecked {
                 ++i;

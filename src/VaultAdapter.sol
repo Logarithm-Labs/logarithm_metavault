@@ -5,6 +5,11 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ILogarithmVault} from "./interfaces/ILogarithmVault.sol";
 
 library VaultAdapter {
+    /// @notice Deposit assets into a target vault.
+    function deposit(address target, uint256 assets, address receiver) internal returns (uint256) {
+        return IERC4626(target).deposit(assets, receiver);
+    }
+
     /// @notice Request to withdraw assets from a target vault. Falls back to synchronous withdraw if async is unsupported.
     /// @return withdrawKey bytes32(0) if fulfilled synchronously; non-zero for async requests.
     function tryRequestWithdraw(address target, uint256 assets, address receiver, address owner)
