@@ -9,6 +9,7 @@ import {MockStrategy} from "test/mock/MockStrategy.sol";
 import {VaultRegistry} from "src/VaultRegistry.sol";
 import {MetaVault} from "src/MetaVault.sol";
 import {VaultFactory} from "src/VaultFactory.sol";
+import {VaultAdapter} from "src/VaultAdapter.sol";
 import {DeployHelper} from "script/utils/DeployHelper.sol";
 
 contract MetaVaultTest is Test {
@@ -40,6 +41,7 @@ contract MetaVaultTest is Test {
         );
         strategy_1 = new MockStrategy(address(asset), address(logVault_1));
         logVault_1.setStrategy(address(strategy_1));
+        logVault_1.setSecurityManager(owner);
         logVault_2 = LogarithmVault(
             address(
                 new ERC1967Proxy(
@@ -52,6 +54,7 @@ contract MetaVaultTest is Test {
         );
         strategy_2 = new MockStrategy(address(asset), address(logVault_2));
         logVault_2.setStrategy(address(strategy_2));
+        logVault_2.setSecurityManager(owner);
         registry = DeployHelper.deployVaultRegistry(owner);
         vm.startPrank(owner);
         registry.register(address(logVault_1));
@@ -81,6 +84,23 @@ contract MetaVaultTest is Test {
         amounts[1] = THOUSANDx6;
         vault.allocate(targets, amounts);
         _;
+    }
+
+    modifier afterFullyUtilized() {
+        strategy_1.utilize(THOUSANDx6);
+        strategy_2.utilize(THOUSANDx6);
+        _;
+    }
+
+    modifier afterPartiallyUtilized() {
+        strategy_1.utilize(THOUSANDx6 / 2);
+        strategy_2.utilize(THOUSANDx6 / 2);
+        _;
+    }
+
+    modifier assertPendingWithdrawalsZero() {
+        _;
+        assertEq(vault.pendingWithdrawals(), 0, "pending withdrawals should be 0");
     }
 
     function test_prod_nonstandard_tokemak() public {
@@ -265,10 +285,7 @@ contract MetaVaultTest is Test {
         assertEq(totalAssetsBefore - totalAssetsAfter, 3500000000, "total assets should be decreased");
     }
 
-    function test_withdraw_whenIdleNotEnough_whenIdleFromCoreEnough() public afterAllocated {
-        strategy_1.utilize(THOUSANDx6 / 2);
-        strategy_2.utilize(THOUSANDx6 / 2);
-
+    function test_withdraw_whenIdleNotEnough_whenIdleFromCoreEnough() public afterAllocated afterPartiallyUtilized {
         uint256 idleAssets = vault.idleAssets();
         assertEq(idleAssets, 3 * THOUSANDx6, "idleAssets");
 
@@ -278,14 +295,11 @@ contract MetaVaultTest is Test {
         vault.requestWithdraw(4 * THOUSANDx6, user, user);
         uint256 balAfter = asset.balanceOf(user);
         uint256 totalAssetsAfter = vault.totalAssets();
-        assertEq(balAfter - balBefore, 3 * THOUSANDx6, "user balance should be increased");
+        assertEq(balAfter - balBefore, 4 * THOUSANDx6, "user balance should be increased");
         assertEq(totalAssetsBefore - totalAssetsAfter, 4 * THOUSANDx6, "total assets should be decreased");
     }
 
-    function test_withdraw_whenIdleNotEnough_whenIdleFromCoreNotEnough() public afterAllocated {
-        strategy_1.utilize(THOUSANDx6);
-        strategy_2.utilize(THOUSANDx6);
-
+    function test_withdraw_whenIdleNotEnough_whenIdleFromCoreNotEnough() public afterAllocated afterFullyUtilized {
         uint256 idleAssets = vault.idleAssets();
         assertEq(idleAssets, 3 * THOUSANDx6, "idleAssets");
 
@@ -300,15 +314,6 @@ contract MetaVaultTest is Test {
 
         bytes32 withdrawKey = vault.getWithdrawKey(user, 0);
         assertFalse(vault.isClaimable(withdrawKey), "not claimable");
-
-        vm.startPrank(curator);
-        address[] memory targets = new address[](2);
-        targets[0] = address(logVault_1);
-        targets[1] = address(logVault_2);
-        uint256[] memory amounts = new uint256[](2);
-        amounts[0] = THOUSANDx6;
-        amounts[1] = THOUSANDx6;
-        vault.redeemAllocations(targets, amounts);
 
         assertEq(vault.totalAssets(), totalAssetsAfter, "total assets remains the same after withdrawal of allocation");
         assertFalse(vault.isClaimable(withdrawKey), "not claimable");
@@ -341,7 +346,7 @@ contract MetaVaultTest is Test {
         assertEq(balanceAfter - balanceBefore, 5 * THOUSANDx6, "user balance should be increased");
     }
 
-    function test_process_withdrawals_withIdleOfLog() public afterAllocated {
+    function test_process_withdrawals_withIdleOfLogVault() public afterAllocated {
         uint256 idleAssets = vault.idleAssets();
         assertEq(idleAssets, 3 * THOUSANDx6, "idleAssets");
 
@@ -351,35 +356,22 @@ contract MetaVaultTest is Test {
         vm.startPrank(user);
         uint256 amount = 4 * THOUSANDx6;
         bytes32 withdrawKey = vault.requestWithdraw(amount, user, user);
-        assertFalse(vault.isClaimable(withdrawKey), "not claimable");
-        assertEq(vault.pendingWithdrawals(), THOUSANDx6, "THOUSANDx6 pending withdrawals");
+        assertEq(withdrawKey, bytes32(0), "shouldn't create withdraw request");
+        assertEq(vault.pendingWithdrawals(), 0, "0 pending withdrawals");
         uint256 balAfter = asset.balanceOf(user);
         uint256 totalAssetsAfter = vault.totalAssets();
-        assertEq(balAfter - balBefore, idleAssets, "user balance should be increased by idle");
+        assertEq(balAfter - balBefore, amount, "user balance should be increased by amount");
         assertEq(totalAssetsBefore - totalAssetsAfter, amount, "total assets should be decreased by amount");
 
-        // process withdrawals
-        vm.startPrank(curator);
-        address[] memory targets = new address[](1);
-        targets[0] = address(logVault_1);
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = THOUSANDx6;
-        vault.withdrawAllocations(targets, amounts);
-        (uint256 requestedAssets, uint256 claimableAssets) = vault.allocationPendingAndClaimable();
-        assertEq(requestedAssets, 0, "no requested");
-        assertEq(claimableAssets, 0, "no claimable allocation");
-
         assertEq(logVault_1.balanceOf(address(vault)), 0, "log vault has 0 shares");
-        assertEq(asset.balanceOf(address(vault)), THOUSANDx6, "vault has requested");
-        assertTrue(vault.isClaimable(withdrawKey), "claimable");
+        assertEq(asset.balanceOf(address(vault)), 0, "vault has 0 assets");
         assertEq(vault.idleAssets(), 0, "no idle");
         assertEq(vault.pendingWithdrawals(), 0, "no pending withdrawals");
     }
 
-    function test_process_withdrawals_withAsyncRedeemAllocation() public afterAllocated {
+    function test_process_withdrawals_withAsyncRedeemAllocation() public afterAllocated afterFullyUtilized {
         uint256 idleAssets = vault.idleAssets();
         assertEq(idleAssets, 3 * THOUSANDx6, "idleAssets");
-        strategy_1.utilize(THOUSANDx6);
 
         uint256 balBefore = asset.balanceOf(user);
         assertEq(vault.pendingWithdrawals(), 0, "no pending withdrawals");
@@ -388,19 +380,12 @@ contract MetaVaultTest is Test {
         uint256 amount = 4 * THOUSANDx6;
         bytes32 withdrawKey = vault.requestWithdraw(amount, user, user);
         assertFalse(vault.isClaimable(withdrawKey), "not claimable");
-        assertEq(vault.pendingWithdrawals(), THOUSANDx6, "THOUSANDx6 pending withdrawals");
+        assertEq(vault.pendingWithdrawals(), 0, "0 pending withdrawals");
         uint256 balAfter = asset.balanceOf(user);
         uint256 totalAssetsAfter = vault.totalAssets();
         assertEq(balAfter - balBefore, idleAssets, "user balance should be increased by idle");
         assertEq(totalAssetsBefore - totalAssetsAfter, amount, "total assets should be decreased by amount");
 
-        // process withdrawals
-        vm.startPrank(curator);
-        address[] memory targets = new address[](1);
-        targets[0] = address(logVault_1);
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = THOUSANDx6;
-        vault.withdrawAllocations(targets, amounts);
         assertEq(logVault_1.balanceOf(address(vault)), 0, "0 shares");
         (uint256 requestedAssets, uint256 claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, THOUSANDx6, "THOUSANDx6 requested");
@@ -430,10 +415,9 @@ contract MetaVaultTest is Test {
         assertEq(vault.pendingWithdrawals(), 0, "no pending withdrawals");
     }
 
-    function test_exploit_externalClaim() public afterAllocated {
+    function test_exploit_externalClaim() public afterAllocated afterFullyUtilized {
         uint256 idleAssets = vault.idleAssets();
         assertEq(idleAssets, 3 * THOUSANDx6, "idleAssets");
-        strategy_1.utilize(THOUSANDx6);
 
         uint256 balBefore = asset.balanceOf(user);
         assertEq(vault.pendingWithdrawals(), 0, "no pending withdrawals");
@@ -442,19 +426,12 @@ contract MetaVaultTest is Test {
         uint256 amount = 4 * THOUSANDx6;
         bytes32 withdrawKey = vault.requestWithdraw(amount, user, user);
         assertFalse(vault.isClaimable(withdrawKey), "not claimable");
-        assertEq(vault.pendingWithdrawals(), THOUSANDx6, "THOUSANDx6 pending withdrawals");
+        assertEq(vault.pendingWithdrawals(), 0, "THOUSANDx6 pending withdrawals");
         uint256 balAfter = asset.balanceOf(user);
         uint256 totalAssetsAfter = vault.totalAssets();
         assertEq(balAfter - balBefore, idleAssets, "user balance should be increased by idle");
         assertEq(totalAssetsBefore - totalAssetsAfter, amount, "total assets should be decreased by amount");
 
-        // process withdrawals
-        vm.startPrank(curator);
-        address[] memory targets = new address[](1);
-        targets[0] = address(logVault_1);
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = THOUSANDx6;
-        vault.withdrawAllocations(targets, amounts);
         assertEq(logVault_1.balanceOf(address(vault)), 0, "0 shares");
         (uint256 requestedAssets, uint256 claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, THOUSANDx6, "THOUSANDx6 requested");
@@ -815,5 +792,1100 @@ contract MetaVaultTest is Test {
         vault.allocate(targets, amounts);
         assertEq(vault.allocatedAssets(), 2 * THOUSANDx6, "Third allocation cycle with second target");
         assertEq(vault.allocatedTargets().length, 2, "Should have two allocated targets");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    MAX WITHDRAW AND MAX REDEEM TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_maxWithdraw_withIdleAssets() public afterAllocated afterPartiallyUtilized {
+        uint256 maxWithdrawAmount = vault.maxWithdraw(user);
+        uint256 expectedMax = vault.idleAssets() + vault.getTargetVaultsIdleAssets();
+
+        assertEq(maxWithdrawAmount, expectedMax, "maxWithdraw should equal total idle assets");
+        assertEq(maxWithdrawAmount, 4 * THOUSANDx6, "Should be 4x THOUSANDx6 (initial deposit - utilized)");
+    }
+
+    function test_maxWithdraw_withNoIdleAssets() public afterAllocated afterFullyUtilized {
+        uint256 maxWithdrawAmount = vault.maxWithdraw(user);
+        uint256 expectedMax = vault.idleAssets();
+
+        assertEq(maxWithdrawAmount, expectedMax, "maxWithdraw should equal only MetaVault idle assets");
+        assertEq(maxWithdrawAmount, 3 * THOUSANDx6, "Should be 3x THOUSANDx6 (initial deposit - allocated)");
+    }
+
+    function test_maxRedeem_withIdleAssets() public afterAllocated afterPartiallyUtilized {
+        uint256 maxRedeemShares = vault.maxRedeem(user);
+        uint256 totalIdleAssets = vault.getTotalIdleAssets();
+        uint256 expectedShares = vault.previewDeposit(totalIdleAssets);
+
+        assertEq(maxRedeemShares, expectedShares, "maxRedeem should convert idle assets to shares");
+        assertEq(maxRedeemShares, 4 * THOUSANDx6, "Should be 4x THOUSANDx6");
+    }
+
+    function test_maxRedeem_withNoIdleAssets() public afterAllocated afterFullyUtilized {
+        uint256 maxRedeemShares = vault.maxRedeem(user);
+        uint256 idleAssets = vault.idleAssets();
+        uint256 expectedShares = vault.previewDeposit(idleAssets);
+
+        assertEq(maxRedeemShares, expectedShares, "maxRedeem should be limited by idle assets");
+        assertEq(maxRedeemShares, 3 * THOUSANDx6, "Should be 3x THOUSANDx6");
+    }
+
+    function test_maxRedeem_floorRounding() public afterAllocated afterFullyUtilized {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        // Add small amount of idle assets to test rounding
+        strategy_1.deutilize(1000); // Small amount
+        strategy_2.deutilize(1000);
+
+        uint256 maxRedeemShares = vault.maxRedeem(user);
+        uint256 totalIdleAssets = vault.getTotalIdleAssets();
+        uint256 expectedShares = vault.previewDeposit(totalIdleAssets);
+
+        assertEq(maxRedeemShares, expectedShares, "maxRedeem should handle small amounts correctly");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    WITHDRAW FROM TARGET IDLE ASSETS TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_withdrawFromTargetIdleAssets_sufficientIdle() public afterAllocated assertPendingWithdrawalsZero {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, 2 * THOUSANDx6, "Target vault idle assets");
+
+        // Test withdrawal that requires target vault assets
+        vm.startPrank(user);
+        uint256 withdrawAmount = 4 * THOUSANDx6;
+        vault.withdraw(withdrawAmount, user, user);
+        vm.stopPrank();
+
+        uint256 finalIdle = vault.idleAssets();
+        assertEq(finalIdle, 0, "Idle assets should be 0");
+    }
+
+    function test_withdrawFromTargetIdleAssets_prioritizeByExitCost()
+        public
+        afterAllocated
+        assertPendingWithdrawalsZero
+    {
+        // Set different exit costs - logVault_1 has lower exit cost
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 50); // Lower exit cost
+        logVault_2.setEntryAndExitCost(0, 500); // Higher exit cost
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, 2 * THOUSANDx6, "Target vault idle assets");
+
+        // Withdraw should prioritize logVault_1 due to lower exit cost
+        vm.startPrank(user);
+        uint256 withdrawAmount = 4 * THOUSANDx6;
+        vault.withdraw(withdrawAmount, user, user);
+        vm.stopPrank();
+
+        // Check that logVault_1 was used first (lower exit cost)
+        uint256 logVault1Idle = VaultAdapter.tryGetIdleAssets(address(logVault_1));
+        uint256 logVault2Idle = VaultAdapter.tryGetIdleAssets(address(logVault_2));
+
+        assertLt(logVault1Idle, THOUSANDx6, "logVault_1 idle should be reduced first");
+        assertEq(logVault2Idle, THOUSANDx6, "logVault_2 idle should remain unchanged");
+    }
+
+    function test_withdrawFromTargetIdleAssets_partialTargetUsage()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        // Add limited idle assets to target vaults
+        strategy_1.deutilize(THOUSANDx6 / 2);
+        strategy_2.deutilize(THOUSANDx6 / 2);
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, THOUSANDx6, "Target vault idle assets");
+
+        // Withdraw amount that exceeds MetaVault idle but is within total available
+        vm.startPrank(user);
+        uint256 withdrawAmount = 4 * THOUSANDx6;
+        vault.withdraw(withdrawAmount, user, user);
+        vm.stopPrank();
+
+        uint256 finalIdle = vault.idleAssets();
+        assertLt(finalIdle, initialIdle, "Idle assets should be reduced");
+    }
+
+    function test_withdrawFromTargetIdleAssets_noTargetIdle()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, 0, "No target vault idle assets");
+
+        // Withdraw should only use MetaVault idle assets
+        vm.startPrank(user);
+        uint256 withdrawAmount = 2 * THOUSANDx6;
+        vault.withdraw(withdrawAmount, user, user);
+        vm.stopPrank();
+
+        uint256 finalIdle = vault.idleAssets();
+        assertEq(finalIdle, THOUSANDx6, "Should have 1x THOUSANDx6 remaining idle");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    REQUEST WITHDRAW FROM ALLOCATIONS TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_requestWithdrawFromAllocations_withExitCostSorting()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set different exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 300); // Higher exit cost
+        logVault_2.setEntryAndExitCost(0, 100); // Lower exit cost
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+
+        // Request withdrawal that exceeds idle assets
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        // Should prioritize logVault_2 due to lower exit cost
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
+
+        // Check that assets were withdrawn from lower exit cost vault first
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+
+        assertEq(logVault2Shares, 0, "logVault_2 shares should be 0");
+        assertGt(logVault1Shares, 0, "logVault_1 shares should be reduced");
+    }
+
+    function test_requestWithdrawFromAllocations_multipleTargets()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 150);
+        logVault_2.setEntryAndExitCost(0, 75);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+
+        // Request large withdrawal
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
+
+        // Both vaults should be used due to large request amount
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+
+        assertLt(logVault1Shares, THOUSANDx6, "logVault_1 shares should be reduced");
+        assertLt(logVault2Shares, THOUSANDx6, "logVault_2 shares should be reduced");
+    }
+
+    function test_requestWithdrawFromAllocations_zeroRequest()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+
+        // Request withdrawal that can be fulfilled with idle assets only
+        vm.startPrank(user);
+        uint256 requestAmount = 2 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        // No withdraw request should be created since all assets are available as idle
+        assertEq(withdrawKey, bytes32(0), "Should not create withdraw request");
+
+        // Target vault shares should remain unchanged
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+
+        assertEq(logVault1Shares, THOUSANDx6, "logVault_1 shares should remain unchanged");
+        assertEq(logVault2Shares, THOUSANDx6, "logVault_2 shares should remain unchanged");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    REQUEST WITHDRAW TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_requestWithdraw_withExitCostConsideration()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 200);
+        logVault_2.setEntryAndExitCost(0, 100);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+
+        // Request withdrawal
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
+
+        // Check that lower exit cost vault was prioritized
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+
+        assertEq(logVault2Shares, 0, "logVault_2 (lower exit cost) should be used first");
+        assertGt(logVault1Shares, 0, "logVault_1 (higher exit cost) should be used after");
+    }
+
+    function test_requestWithdraw_maxRequestExceeded() public afterAllocated assertPendingWithdrawalsZero {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 maxRequest = vault.maxRequestWithdraw(user);
+        uint256 exceedAmount = maxRequest + 1;
+
+        vm.startPrank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(MetaVault.MV__ExceededMaxRequestWithdraw.selector, user, exceedAmount, maxRequest)
+        );
+        vault.requestWithdraw(exceedAmount, user, user);
+        vm.stopPrank();
+    }
+
+    function test_requestWithdraw_partialFulfillment()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 150);
+        logVault_2.setEntryAndExitCost(0, 100);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+
+        // Request withdrawal
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
+
+        // User should receive idle assets immediately
+        uint256 userBalance = asset.balanceOf(user);
+        assertGt(userBalance, 0, "User should receive some assets immediately");
+
+        // Check withdraw request
+        MetaVault.WithdrawRequest memory request = vault.withdrawRequests(withdrawKey);
+        assertEq(request.requestedAssets, THOUSANDx6, "Should request remaining amount");
+        assertFalse(request.isClaimed, "Request should not be claimed yet");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    REQUEST REDEEM TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_requestRedeem_withExitCostConsideration()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 300);
+        logVault_2.setEntryAndExitCost(0, 100);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+
+        // Request redemption
+        vm.startPrank(user);
+        uint256 userShares = vault.balanceOf(user);
+        uint256 redeemShares = userShares / 2; // Redeem half of shares
+        bytes32 withdrawKey = vault.requestRedeem(redeemShares, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey == bytes32(0), "Shouldn't create withdraw request");
+
+        // Check that lower exit cost vault was prioritized
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+
+        assertEq(logVault2Shares, THOUSANDx6, "logVault_2 (lower exit cost) should remain unchanged");
+        assertEq(logVault1Shares, THOUSANDx6, "logVault_1 (higher exit cost) should remain unchanged initially");
+    }
+
+    function test_requestRedeem_maxRequestExceeded() public afterAllocated {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 maxRequest = vault.maxRequestRedeem(user);
+        uint256 exceedShares = maxRequest + 1;
+
+        vm.startPrank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(MetaVault.MV__ExceededMaxRequestRedeem.selector, user, exceedShares, maxRequest)
+        );
+        vault.requestRedeem(exceedShares, user, user);
+        vm.stopPrank();
+    }
+
+    function test_requestRedeem_partialFulfillment()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 200);
+        logVault_2.setEntryAndExitCost(0, 150);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+
+        // Request redemption
+        vm.startPrank(user);
+        uint256 userShares = vault.balanceOf(user);
+        uint256 redeemShares = userShares * 4 / 5; // Redeem 80% of shares
+        bytes32 withdrawKey = vault.requestRedeem(redeemShares, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
+
+        // Check withdraw request
+        MetaVault.WithdrawRequest memory request = vault.withdrawRequests(withdrawKey);
+        assertGt(request.requestedAssets, 0, "Should request remaining amount");
+        assertFalse(request.isClaimed, "Request should not be claimed yet");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            EDGE CASE TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_edgeCase_veryHighExitCost() public afterAllocated afterFullyUtilized assertPendingWithdrawalsZero {
+        // Set extremely high exit cost
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 10000);
+        logVault_2.setEntryAndExitCost(0, 50000);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+
+        // Request withdrawal
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request despite high exit costs");
+
+        // Should still prioritize by exit cost (lower first)
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+
+        assertEq(logVault1Shares, 0, "logVault_1 (lower exit cost) should be used first");
+        assertGt(logVault2Shares, 0, "logVault_2 (higher exit cost) should be used after");
+    }
+
+    function test_edgeCase_zeroExitCost() public afterAllocated afterFullyUtilized assertPendingWithdrawalsZero {
+        // Set zero exit cost
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 0);
+        logVault_2.setEntryAndExitCost(0, 0);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+
+        // Request withdrawal
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request with zero exit costs");
+
+        // Both vaults should be used equally since they have same exit cost
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+
+        assertEq(logVault1Shares, 0, "logVault_1 shares should be 0");
+        assertEq(logVault2Shares, THOUSANDx6, "logVault_2 shares shouldn't be used");
+    }
+
+    function test_edgeCase_singleTargetVault() public afterAllocated assertPendingWithdrawalsZero {
+        // Remove second target
+        vm.startPrank(curator);
+        address[] memory targets = new address[](1);
+        targets[0] = address(logVault_2);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = THOUSANDx6;
+        vault.withdrawAllocations(targets, amounts);
+        vm.stopPrank();
+
+        // Set exit cost for remaining vault
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        vm.stopPrank();
+
+        // Utilize assets
+        strategy_1.utilize(THOUSANDx6);
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 4 * THOUSANDx6, "Initial idle assets");
+
+        // Request withdrawal
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6 + 1;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request with single target");
+
+        // Only logVault_1 should be used
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        assertLt(logVault1Shares, THOUSANDx6, "logVault_1 shares should be reduced");
+    }
+
+    function test_edgeCase_shutdownVault() public afterAllocated afterFullyUtilized assertPendingWithdrawalsZero {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        // Shutdown the vault
+        vm.startPrank(owner);
+        registry.shutdownMetaVault(address(vault));
+        vm.stopPrank();
+
+        // Try to request withdrawal after shutdown
+        vm.startPrank(user);
+        uint256 userShares = vault.balanceOf(user);
+        bytes32 withdrawKey = vault.requestRedeem(userShares, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request even after shutdown");
+
+        // Check that vault is shutdown
+        assertTrue(vault.isShutdown(), "Vault should be shutdown");
+    }
+
+    function test_edgeCase_verySmallAmounts() public afterAllocated afterFullyUtilized assertPendingWithdrawalsZero {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+
+        // Request very small withdrawal
+        vm.startPrank(user);
+        uint256 requestAmount = 1000; // Very small amount
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        // Should not create withdraw request for small amounts
+        assertEq(withdrawKey, bytes32(0), "Should not create withdraw request for small amounts");
+
+        // Target vault shares should remain unchanged
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+
+        assertEq(logVault1Shares, THOUSANDx6, "logVault_1 shares should remain unchanged");
+        assertEq(logVault2Shares, THOUSANDx6, "logVault_2 shares should remain unchanged");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    FULLY UTILIZED ASSET TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_fullyUtilized_maxWithdraw() public afterAllocated afterFullyUtilized assertPendingWithdrawalsZero {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 maxWithdrawAmount = vault.maxWithdraw(user);
+        uint256 expectedMax = vault.idleAssets(); // Only MetaVault idle assets
+
+        assertEq(maxWithdrawAmount, expectedMax, "maxWithdraw should equal only MetaVault idle assets");
+        assertEq(maxWithdrawAmount, 3 * THOUSANDx6, "Should be 3x THOUSANDx6 (initial deposit - allocated)");
+        assertEq(vault.getTargetVaultsIdleAssets(), 0, "Target vaults should have no idle assets");
+    }
+
+    function test_fullyUtilized_maxRedeem() public afterAllocated afterFullyUtilized {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 150);
+        logVault_2.setEntryAndExitCost(0, 300);
+        vm.stopPrank();
+
+        uint256 maxRedeemShares = vault.maxRedeem(user);
+        uint256 idleAssets = vault.idleAssets();
+        uint256 expectedShares = vault.previewDeposit(idleAssets);
+
+        assertEq(maxRedeemShares, expectedShares, "maxRedeem should be limited by MetaVault idle assets");
+        assertLt(maxRedeemShares, vault.balanceOf(user), "Should be less than user's total shares");
+        assertEq(vault.getTotalIdleAssets(), 3 * THOUSANDx6, "Total idle should be only MetaVault idle");
+    }
+
+    function test_fullyUtilized_requestWithdraw()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+
+        // Request withdrawal that exceeds idle assets
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
+
+        // User should receive idle assets immediately
+        uint256 userBalance = asset.balanceOf(user);
+        assertGt(userBalance, 0, "User should receive idle assets immediately");
+
+        // Check withdraw request for remaining amount
+        MetaVault.WithdrawRequest memory request = vault.withdrawRequests(withdrawKey);
+        assertEq(request.requestedAssets, THOUSANDx6, "Should request remaining amount");
+        assertFalse(request.isClaimed, "Request should not be claimed yet");
+
+        // Target vault shares should remain unchanged since they're fully utilized
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+        assertEq(logVault1Shares, 0, "logVault_1 shares should be 0");
+        assertGt(logVault2Shares, 0, "logVault_2 shares shouldn't be 0");
+    }
+
+    function test_fullyUtilized_requestRedeem() public afterAllocated afterFullyUtilized assertPendingWithdrawalsZero {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 200);
+        logVault_2.setEntryAndExitCost(0, 150);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+
+        // Request redemption
+        vm.startPrank(user);
+        uint256 userShares = vault.balanceOf(user);
+        uint256 redeemShares = userShares * 4 / 5; // Redeem 80% of shares
+        bytes32 withdrawKey = vault.requestRedeem(redeemShares, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
+
+        // Check withdraw request
+        MetaVault.WithdrawRequest memory request = vault.withdrawRequests(withdrawKey);
+        assertGt(request.requestedAssets, 0, "Should request remaining amount");
+        assertFalse(request.isClaimed, "Request should not be claimed yet");
+
+        // Target vault shares should remain unchanged
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+        assertEq(logVault1Shares, THOUSANDx6, "logVault_1 shares should be unchanged");
+        assertLt(logVault2Shares, THOUSANDx6, "logVault_2 shares should be reduced");
+    }
+
+    function test_fullyUtilized_withdrawFromTargetIdleAssets()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, 0, "No target vault idle assets after full utilization");
+
+        // Withdraw should only use MetaVault idle assets
+        vm.startPrank(user);
+        uint256 withdrawAmount = 2 * THOUSANDx6;
+        vault.withdraw(withdrawAmount, user, user);
+        vm.stopPrank();
+
+        uint256 finalIdle = vault.idleAssets();
+        assertEq(finalIdle, THOUSANDx6, "Should have 1x THOUSANDx6 remaining idle");
+
+        // Target vault shares should remain unchanged
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+        assertEq(logVault1Shares, THOUSANDx6, "logVault_1 shares should remain unchanged");
+        assertEq(logVault2Shares, THOUSANDx6, "logVault_2 shares should remain unchanged");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    PARTIALLY UTILIZED ASSET TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_partiallyUtilized_maxWithdraw()
+        public
+        afterAllocated
+        afterPartiallyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 maxWithdrawAmount = vault.maxWithdraw(user);
+        uint256 expectedMax = vault.getTotalIdleAssets(); // MetaVault + target vault idle assets
+
+        assertEq(maxWithdrawAmount, expectedMax, "maxWithdraw should equal total idle assets");
+        assertGt(maxWithdrawAmount, 3 * THOUSANDx6, "Should be greater than MetaVault idle due to target vault idle");
+        assertEq(vault.getTargetVaultsIdleAssets(), THOUSANDx6, "Target vaults should have THOUSANDx6 idle assets");
+    }
+
+    function test_partiallyUtilized_maxRedeem()
+        public
+        afterAllocated
+        afterPartiallyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 150);
+        logVault_2.setEntryAndExitCost(0, 300);
+        vm.stopPrank();
+
+        uint256 maxRedeemShares = vault.maxRedeem(user);
+        uint256 totalIdleAssets = vault.getTotalIdleAssets();
+        uint256 expectedShares = vault.previewDeposit(totalIdleAssets);
+
+        assertEq(maxRedeemShares, expectedShares, "maxRedeem should convert total idle assets to shares");
+        assertGt(maxRedeemShares, 0, "Should be able to redeem some shares");
+        assertEq(totalIdleAssets, 4 * THOUSANDx6, "Total idle should be MetaVault + target vault idle");
+    }
+
+    function test_partiallyUtilized_requestWithdraw()
+        public
+        afterAllocated
+        afterPartiallyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, THOUSANDx6, "Target vault idle assets");
+
+        // Request withdrawal that requires target vault assets
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey == bytes32(0), "Shouldn't create withdraw request");
+
+        // User should receive idle assets immediately
+        uint256 userBalance = asset.balanceOf(user);
+        assertGt(userBalance, 0, "User should receive idle assets immediately");
+
+        // Target vault shares should be reduced due to idle assets
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+        assertLt(logVault1Shares, THOUSANDx6, "logVault_1 shares should be reduced");
+        assertLt(logVault2Shares, THOUSANDx6, "logVault_2 shares should be reduced");
+    }
+
+    function test_partiallyUtilized_requestRedeem()
+        public
+        afterAllocated
+        afterPartiallyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 200);
+        logVault_2.setEntryAndExitCost(0, 150);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, THOUSANDx6, "Target vault idle assets");
+
+        // Request redemption
+        vm.startPrank(user);
+        uint256 userShares = vault.balanceOf(user);
+        uint256 redeemShares = userShares * 4 / 5; // Redeem 80% of shares
+        bytes32 withdrawKey = vault.requestRedeem(redeemShares, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey == bytes32(0), "Shouldn't create withdraw request");
+
+        // Target vault shares should be reduced
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+        assertLt(logVault1Shares, THOUSANDx6, "logVault_1 shares should be reduced");
+        assertLt(logVault2Shares, THOUSANDx6, "logVault_2 shares should be reduced");
+    }
+
+    function test_partiallyUtilized_withdrawFromTargetIdleAssets()
+        public
+        afterAllocated
+        afterPartiallyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, THOUSANDx6, "Target vault idle assets");
+
+        // Withdraw should use both MetaVault and target vault idle assets
+        vm.startPrank(user);
+        uint256 withdrawAmount = 4 * THOUSANDx6;
+        vault.withdraw(withdrawAmount, user, user);
+        vm.stopPrank();
+
+        uint256 finalIdle = vault.idleAssets();
+        assertLt(finalIdle, initialIdle, "Idle assets should be reduced");
+
+        // Target vault shares should be reduced
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+        assertLt(logVault1Shares, THOUSANDx6, "logVault_1 shares should be reduced");
+        assertLt(logVault2Shares, THOUSANDx6, "logVault_2 shares should be reduced");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    MIXED UTILIZATION SCENARIO TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_mixedUtilization_scenario1() public afterAllocated assertPendingWithdrawalsZero {
+        // Partially utilize logVault_1, fully utilize logVault_2
+        strategy_1.utilize(THOUSANDx6 / 2);
+        strategy_2.utilize(THOUSANDx6);
+
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, THOUSANDx6 / 2, "Only logVault_1 should have idle assets");
+
+        // Request withdrawal
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
+
+        // Both vaults should have their shares reduced when creating withdraw requests
+        // logVault_1 shares should be reduced due to idle assets withdrawal
+        // logVault_2 shares should be reduced due to withdraw request creation
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+        assertEq(logVault1Shares, 0, "logVault_1 shares should be 0");
+        assertLt(logVault2Shares, THOUSANDx6, "logVault_2 shares should be reduced");
+    }
+
+    function test_mixedUtilization_scenario2() public afterAllocated assertPendingWithdrawalsZero {
+        // Fully utilize logVault_1, partially utilize logVault_2
+        strategy_1.utilize(THOUSANDx6);
+        strategy_2.utilize(THOUSANDx6 / 2);
+
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 200);
+        logVault_2.setEntryAndExitCost(0, 100);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, THOUSANDx6 / 2, "Only logVault_2 should have idle assets");
+
+        // Request withdrawal
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
+
+        // Both vaults should have their shares reduced when creating withdraw requests
+        // logVault_1 shares should be reduced due to withdraw request creation
+        // logVault_2 shares should be reduced due to idle assets withdrawal
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+        assertLt(logVault1Shares, THOUSANDx6, "logVault_1 shares should be reduced");
+        assertLt(logVault2Shares, THOUSANDx6, "logVault_2 shares should be reduced");
+    }
+
+    function test_mixedUtilization_scenario3() public afterAllocated {
+        // Partially utilize both vaults with different amounts
+        strategy_1.utilize(THOUSANDx6 * 3 / 4);
+        strategy_2.utilize(THOUSANDx6 / 4);
+
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 150);
+        logVault_2.setEntryAndExitCost(0, 100);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, THOUSANDx6, "Total target vault idle assets");
+
+        // Request withdrawal
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        // No withdraw request should be created since all assets are available as idle
+        assertEq(withdrawKey, bytes32(0), "Should not create withdraw request");
+
+        // Both vaults should have their shares reduced due to idle assets withdrawal
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+        assertLt(logVault1Shares, THOUSANDx6, "logVault_1 shares should be reduced");
+        assertLt(logVault2Shares, THOUSANDx6, "logVault_2 shares should be reduced");
+
+        // logVault_2 should be used more due to lower exit cost
+        assertLt(logVault2Shares, logVault1Shares, "logVault_2 should be used more due to lower exit cost");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    UTILIZATION TRANSITION TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_utilizationTransition_partialToFull()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, 0, "No target vault idle assets after full utilization");
+
+        // Request withdrawal
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
+
+        // Target vault shares should remain unchanged since they're fully utilized
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+        assertEq(logVault1Shares, 0, "logVault_1 shares should be 0");
+        assertGt(logVault2Shares, 0, "logVault_2 shares shouldn't be 0");
+    }
+
+    function test_utilizationTransition_fullToPartial()
+        public
+        afterAllocated
+        afterPartiallyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Set exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, THOUSANDx6, "Target vaults should have idle assets after deutilization");
+
+        // Request withdrawal
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey == bytes32(0), "Shouldn't create withdraw request");
+
+        // Target vault shares should be reduced due to idle assets
+        uint256 logVault1Shares = logVault_1.balanceOf(address(vault));
+        uint256 logVault2Shares = logVault_2.balanceOf(address(vault));
+        assertEq(logVault1Shares, THOUSANDx6 / 2, "logVault_1 shares should be changed");
+        assertEq(logVault2Shares, THOUSANDx6 / 2, "logVault_2 shares should be changed");
+    }
+
+    function test_utilizationTransition_dynamicExitCosts()
+        public
+        afterAllocated
+        afterFullyUtilized
+        assertPendingWithdrawalsZero
+    {
+        // Start with partially utilized
+        uint256 initialIdle = vault.idleAssets();
+        uint256 targetIdle = vault.getTargetVaultsIdleAssets();
+
+        assertEq(initialIdle, 3 * THOUSANDx6, "Initial idle assets");
+        assertEq(targetIdle, 0, "Target vault idle assets");
+
+        // Set initial exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 100);
+        logVault_2.setEntryAndExitCost(0, 200);
+        vm.stopPrank();
+
+        // Request withdrawal with initial exit costs
+        vm.startPrank(user);
+        uint256 requestAmount = 4 * THOUSANDx6;
+        bytes32 withdrawKey1 = vault.requestWithdraw(requestAmount, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey1 != bytes32(0), "Should create first withdraw request");
+
+        // Change exit costs
+        vm.startPrank(owner);
+        logVault_1.setEntryAndExitCost(0, 300);
+        logVault_2.setEntryAndExitCost(0, 150);
+        vm.stopPrank();
+
+        // Request another withdrawal with new exit costs
+        vm.startPrank(user);
+        bytes32 withdrawKey2 = vault.requestWithdraw(THOUSANDx6 / 2, user, user);
+        vm.stopPrank();
+
+        assertTrue(withdrawKey2 != bytes32(0), "Should create second withdraw request");
+
+        // Both requests should be valid
+        assertTrue(withdrawKey1 != withdrawKey2, "Withdraw keys should be different");
     }
 }

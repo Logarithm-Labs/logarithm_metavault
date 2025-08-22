@@ -12,6 +12,7 @@ import {NoncesUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Nonce
 
 import {ManagedVault} from "managed_basis/vault/ManagedVault.sol";
 import {AbstractAllocationManager} from "./AbstractAllocationManager.sol";
+import {VaultAdapter} from "./VaultAdapter.sol";
 
 import {IVaultRegistry} from "src/interfaces/IVaultRegistry.sol";
 
@@ -152,22 +153,22 @@ contract MetaVault is Initializable, ManagedVault, AbstractAllocationManager, No
         return isShutdown() ? 0 : super.maxMint(receiver);
     }
 
-    /// @dev This is limited by the idle assets.
+    /// @dev This is limited by the idle assets (including target vault idle assets).
     ///
     /// @inheritdoc ERC4626Upgradeable
     function maxWithdraw(address owner) public view virtual override returns (uint256) {
         uint256 assets = super.maxWithdraw(owner);
-        uint256 withdrawableAssets = idleAssets();
-        return assets > withdrawableAssets ? withdrawableAssets : assets;
+        uint256 totalIdleAssets = getTotalIdleAssets();
+        return assets > totalIdleAssets ? totalIdleAssets : assets;
     }
 
-    /// @dev This is limited by the idle assets.
+    /// @dev This is limited by the idle assets (including target vault idle assets).
     ///
     /// @inheritdoc ERC4626Upgradeable
     function maxRedeem(address owner) public view virtual override returns (uint256) {
         uint256 shares = super.maxRedeem(owner);
-        // should be rounded floor so that the derived assets can't exceed idle
-        uint256 redeemableShares = _convertToShares(idleAssets(), Math.Rounding.Floor);
+        // should be rounded floor so that the derived assets can't exceed total idle
+        uint256 redeemableShares = _convertToShares(getTotalIdleAssets(), Math.Rounding.Floor);
         return shares > redeemableShares ? redeemableShares : shares;
     }
 
@@ -186,7 +187,44 @@ contract MetaVault is Initializable, ManagedVault, AbstractAllocationManager, No
         override
     {
         _claimAllocations();
+        _withdrawFromTargetIdleAssets(assets);
         super._withdraw(caller, receiver, owner, assets, shares);
+    }
+
+    /// @dev Withdraw from target vault idle assets to fulfill immediate withdrawal requests
+    /// @param requestedAssets The amount of assets requested for immediate withdrawal
+    function _withdrawFromTargetIdleAssets(uint256 requestedAssets) internal {
+        if (requestedAssets == 0) return;
+
+        // Check if we need more assets from target vaults
+        uint256 idleAssetsAvailable = idleAssets();
+        if (idleAssetsAvailable >= requestedAssets) return; // Already have enough
+
+        uint256 additionalNeeded = requestedAssets - idleAssetsAvailable;
+
+        // Withdraw from target vault idle assets
+        address[] memory targets = allocatedTargets();
+        uint256 len = targets.length;
+        if (len > 0) {
+            for (uint256 i; i < len && additionalNeeded > 0;) {
+                address target = targets[i];
+
+                // Check if target vault has idle assets that can be withdrawn immediately
+                uint256 targetIdleAssets = VaultAdapter.tryGetIdleAssets(target);
+                if (targetIdleAssets > 0) {
+                    uint256 assetsToWithdraw = Math.min(additionalNeeded, targetIdleAssets);
+
+                    if (assetsToWithdraw > 0) {
+                        // Withdraw idle assets immediately from target vault
+                        _withdrawAllocation(target, assetsToWithdraw, address(this));
+                        additionalNeeded -= assetsToWithdraw;
+                    }
+                }
+                unchecked {
+                    i++;
+                }
+            }
+        }
     }
 
     /// @notice Returns the maximum amount of the underlying asset that can be
@@ -233,6 +271,7 @@ contract MetaVault is Initializable, ManagedVault, AbstractAllocationManager, No
         if (assetsToWithdraw > 0) _withdraw(_msgSender(), receiver, owner, assetsToWithdraw, sharesToRedeem);
 
         if (assetsToRequest > 0) {
+            _requestWithdrawFromAllocations(assetsToRequest);
             return _requestWithdraw(_msgSender(), receiver, owner, assetsToRequest, sharesToRequest);
         }
         return bytes32(0);
@@ -270,6 +309,7 @@ contract MetaVault is Initializable, ManagedVault, AbstractAllocationManager, No
         if (assetsToWithdraw > 0) _withdraw(_msgSender(), receiver, owner, assetsToWithdraw, sharesToRedeem);
 
         if (assetsToRequest > 0) {
+            _requestWithdrawFromAllocations(assetsToRequest);
             return _requestWithdraw(_msgSender(), receiver, owner, assetsToRequest, sharesToRequest);
         }
         return bytes32(0);
@@ -308,6 +348,97 @@ contract MetaVault is Initializable, ManagedVault, AbstractAllocationManager, No
         emit WithdrawRequested(caller, receiver, owner, withdrawKey, assetsToRequest, sharesToRequest);
 
         return withdrawKey;
+    }
+
+    /// @dev Automatically withdraw from allocations to fulfill user withdrawal requests
+    /// @param requestedAssets The amount of assets requested by the user
+    function _requestWithdrawFromAllocations(uint256 requestedAssets) internal {
+        if (requestedAssets == 0) return;
+
+        uint256 remainingRequested = requestedAssets;
+
+        if (remainingRequested > 0) {
+            address[] memory targets = allocatedTargets();
+            uint256 targetsLength = targets.length;
+
+            if (targetsLength > 0) {
+                // Sort targets by exit cost (ascending order)
+                address[] memory sortedTargets = _sortTargetsByExitCost(targets);
+
+                for (uint256 i; i < targetsLength && remainingRequested > 0;) {
+                    address target = sortedTargets[i];
+                    uint256 targetShares = VaultAdapter.shareBalanceOf(target, address(this));
+
+                    if (targetShares > 0) {
+                        // Calculate how much we can withdraw from this target's shares
+                        uint256 targetAssets = VaultAdapter.tryPreviewAssets(target, targetShares);
+                        uint256 assetsToWithdraw = Math.min(remainingRequested, targetAssets);
+
+                        if (assetsToWithdraw > 0) {
+                            _withdrawAllocation(target, assetsToWithdraw, address(this));
+                            remainingRequested -= assetsToWithdraw;
+                        }
+                    }
+                    unchecked {
+                        i++;
+                    }
+                }
+            }
+        }
+    }
+
+    /// @dev Sort targets by exit cost in ascending order
+    /// @param targets Array of target vault addresses
+    /// @return Sorted array of targets by exit cost
+    function _sortTargetsByExitCost(address[] memory targets) internal view returns (address[] memory) {
+        uint256 targetsLength = targets.length;
+        if (targetsLength <= 1) return targets;
+
+        // Simple bubble sort by exit cost (ascending)
+        for (uint256 i; i < targetsLength - 1;) {
+            for (uint256 j; j < targetsLength - i - 1;) {
+                uint256 currentExitCost = VaultAdapter.tryGetExitCost(targets[j]);
+                uint256 nextExitCost = VaultAdapter.tryGetExitCost(targets[j + 1]);
+
+                if (currentExitCost > nextExitCost) {
+                    // Swap
+                    address temp = targets[j];
+                    targets[j] = targets[j + 1];
+                    targets[j + 1] = temp;
+                }
+                unchecked {
+                    ++j;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
+
+        return targets;
+    }
+
+    /// @notice Get total idle assets including MetaVault and target vault idle assets
+    /// @return Total idle assets available for immediate withdrawal
+    function getTotalIdleAssets() public view returns (uint256) {
+        uint256 metaVaultIdle = idleAssets();
+        uint256 targetVaultsIdle = getTargetVaultsIdleAssets();
+        return metaVaultIdle + targetVaultsIdle;
+    }
+
+    /// @dev Get total idle assets from all target vaults
+    /// @return Total idle assets from target vaults
+    function getTargetVaultsIdleAssets() public view returns (uint256) {
+        address[] memory targets = allocatedTargets();
+        uint256 totalIdle;
+        uint256 len = targets.length;
+        for (uint256 i; i < len;) {
+            unchecked {
+                totalIdle += VaultAdapter.tryGetIdleAssets(targets[i]);
+                ++i;
+            }
+        }
+        return totalIdle;
     }
 
     /// @notice Claim withdrawable assets
@@ -430,9 +561,12 @@ contract MetaVault is Initializable, ManagedVault, AbstractAllocationManager, No
         uint256 assetBalance = IERC20(asset()).balanceOf(address(this));
         (, uint256 claimableAssets) = allocationPendingAndClaimable();
         WithdrawRequest memory withdrawRequest = withdrawRequests(withdrawKey);
-        return !withdrawRequest.isClaimed
-            && withdrawRequest.cumulativeRequestedWithdrawalAssets
-                <= cumulativeWithdrawnAssets() + assetBalance + claimableAssets;
+
+        if (withdrawRequest.isClaimed) return false;
+
+        // Check if we have enough assets directly available
+        uint256 directlyAvailable = assetBalance + claimableAssets;
+        return withdrawRequest.cumulativeRequestedWithdrawalAssets <= cumulativeWithdrawnAssets() + directlyAvailable;
     }
 
     /*//////////////////////////////////////////////////////////////

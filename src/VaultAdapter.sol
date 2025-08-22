@@ -75,6 +75,16 @@ library VaultAdapter {
         }
     }
 
+    /// @notice Preview shares for a given amount of assets on a target vault.
+    /// @dev Tries previewAssets first; falls back to convertToShares.
+    function tryPreviewShares(address target, uint256 assets) internal view returns (uint256 shares) {
+        try IERC4626(target).previewWithdraw(assets) returns (uint256 previewShares) {
+            return previewShares;
+        } catch {
+            return IERC4626(target).convertToShares(assets);
+        }
+    }
+
     /// @notice Returns the current share balance held by holder for the target vault.
     function shareBalanceOf(address target, address holder) internal view returns (uint256) {
         return IERC4626(target).balanceOf(holder);
@@ -83,5 +93,54 @@ library VaultAdapter {
     /// @notice Returns the asset token address for the target vault.
     function asset(address target) internal view returns (address) {
         return IERC4626(target).asset();
+    }
+
+    function tryGetMaxWithdraw(address target, address holder) internal view returns (uint256) {
+        try ILogarithmVault(target).maxRequestWithdraw(holder) returns (uint256 maxWithdraw) {
+            return maxWithdraw;
+        } catch {
+            return IERC4626(target).maxWithdraw(holder);
+        }
+    }
+
+    function tryGetMaxRedeem(address target, address holder) internal view returns (uint256) {
+        try ILogarithmVault(target).maxRequestRedeem(holder) returns (uint256 maxRedeem) {
+            return maxRedeem;
+        } catch {
+            return IERC4626(target).maxRedeem(holder);
+        }
+    }
+
+    /// @notice Returns the idle assets available in a target vault.
+    /// @dev Returns 0 if the target doesn't support idle assets (e.g., standard ERC4626 vaults).
+    function tryGetIdleAssets(address target) internal view returns (uint256) {
+        try ILogarithmVault(target).idleAssets() returns (uint256 idleAssets) {
+            return idleAssets;
+        } catch {
+            // For non-LogarithmVaults, return 0 (no idle assets concept)
+            return 0;
+        }
+    }
+
+    /// @notice Returns the entry cost for a target vault.
+    /// @dev Returns 0 if the target doesn't support entry costs (e.g., standard ERC4626 vaults).
+    function tryGetEntryCost(address target) internal view returns (uint256) {
+        try ILogarithmVault(target).entryCost() returns (uint256 entryCost) {
+            return entryCost;
+        } catch {
+            // For non-LogarithmVaults, return 0 (highest priority)
+            return 0;
+        }
+    }
+
+    /// @notice Returns the exit cost for a target vault.
+    /// @dev Returns 0 if the target doesn't support exit costs (e.g., standard ERC4626 vaults).
+    function tryGetExitCost(address target) internal view returns (uint256) {
+        try ILogarithmVault(target).exitCost() returns (uint256 exitCost) {
+            return exitCost;
+        } catch {
+            // For non-LogarithmVaults, return 0 (no exit cost concept)
+            return 0;
+        }
     }
 }
