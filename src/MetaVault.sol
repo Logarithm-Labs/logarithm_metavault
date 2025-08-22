@@ -12,7 +12,7 @@ import {NoncesUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Nonce
 
 import {ManagedVault} from "managed_basis/vault/ManagedVault.sol";
 import {AllocationManager} from "./AllocationManager.sol";
-import {VaultAdapter} from "./VaultAdapter.sol";
+import {VaultAdapter} from "./library/VaultAdapter.sol";
 
 import {IVaultRegistry} from "src/interfaces/IVaultRegistry.sol";
 
@@ -159,7 +159,7 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
     function maxWithdraw(address owner) public view virtual override returns (uint256) {
         uint256 assets = super.maxWithdraw(owner);
         uint256 totalIdleAssets = getTotalIdleAssets();
-        return assets > totalIdleAssets ? totalIdleAssets : assets;
+        return Math.min(assets, totalIdleAssets);
     }
 
     /// @dev This is limited by the idle assets (including target vault idle assets).
@@ -169,7 +169,7 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
         uint256 shares = super.maxRedeem(owner);
         // should be rounded floor so that the derived assets can't exceed total idle
         uint256 redeemableShares = _convertToShares(getTotalIdleAssets(), Math.Rounding.Floor);
-        return shares > redeemableShares ? redeemableShares : shares;
+        return Math.min(shares, redeemableShares);
     }
 
     /// @inheritdoc ERC4626Upgradeable
@@ -217,7 +217,9 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
                     if (assetsToWithdraw > 0) {
                         // Withdraw idle assets immediately from target vault
                         _withdrawAllocation(target, assetsToWithdraw, address(this));
-                        additionalNeeded -= assetsToWithdraw;
+                        unchecked {
+                            additionalNeeded -= assetsToWithdraw;
+                        }
                     }
                 }
                 unchecked {
@@ -260,7 +262,7 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
             revert MV__ExceededMaxRequestWithdraw(owner, assets, maxRequestAssets);
         }
         uint256 maxAssets = maxWithdraw(owner);
-        uint256 assetsToWithdraw = assets > maxAssets ? maxAssets : assets;
+        uint256 assetsToWithdraw = Math.min(assets, maxAssets);
         // always assetsToWithdraw <= assets
         uint256 assetsToRequest = assets - assetsToWithdraw;
 
@@ -271,7 +273,6 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
         if (assetsToWithdraw > 0) _withdraw(_msgSender(), receiver, owner, assetsToWithdraw, sharesToRedeem);
 
         if (assetsToRequest > 0) {
-            _requestWithdrawFromAllocations(assetsToRequest);
             return _requestWithdraw(_msgSender(), receiver, owner, assetsToRequest, sharesToRequest);
         }
         return bytes32(0);
@@ -299,7 +300,7 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
         uint256 assets = previewRedeem(shares);
         uint256 maxAssets = maxWithdraw(owner);
 
-        uint256 assetsToWithdraw = assets > maxAssets ? maxAssets : assets;
+        uint256 assetsToWithdraw = Math.min(assets, maxAssets);
         // always assetsToWithdraw <= assets
         uint256 assetsToRequest = assets - assetsToWithdraw;
 
@@ -309,7 +310,6 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
         if (assetsToWithdraw > 0) _withdraw(_msgSender(), receiver, owner, assetsToWithdraw, sharesToRedeem);
 
         if (assetsToRequest > 0) {
-            _requestWithdrawFromAllocations(assetsToRequest);
             return _requestWithdraw(_msgSender(), receiver, owner, assetsToRequest, sharesToRequest);
         }
         return bytes32(0);
@@ -347,6 +347,8 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
 
         emit WithdrawRequested(caller, receiver, owner, withdrawKey, assetsToRequest, sharesToRequest);
 
+        _requestWithdrawFromAllocations(assetsToRequest);
+
         return withdrawKey;
     }
 
@@ -376,7 +378,9 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
 
                         if (assetsToWithdraw > 0) {
                             _withdrawAllocation(target, assetsToWithdraw, address(this));
-                            remainingRequested -= assetsToWithdraw;
+                            unchecked {
+                                remainingRequested -= assetsToWithdraw;
+                            }
                         }
                     }
                     unchecked {
@@ -403,8 +407,10 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
                 if (currentExitCost > nextExitCost) {
                     // Swap
                     address temp = targets[j];
-                    targets[j] = targets[j + 1];
-                    targets[j + 1] = temp;
+                    unchecked {
+                        targets[j] = targets[j + 1];
+                        targets[j + 1] = temp;
+                    }
                 }
                 unchecked {
                     ++j;

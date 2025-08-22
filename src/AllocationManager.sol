@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {VaultAdapter} from "./VaultAdapter.sol";
+import {VaultAdapter} from "./library/VaultAdapter.sol";
 
 /// @title AllocationManager
 /// @notice Generalized allocation/deallocation/claim helper for managing positions across heterogeneous vaults

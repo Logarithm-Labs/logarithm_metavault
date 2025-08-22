@@ -9,7 +9,7 @@ import {MockStrategy} from "test/mock/MockStrategy.sol";
 import {VaultRegistry} from "src/VaultRegistry.sol";
 import {MetaVault} from "src/MetaVault.sol";
 import {VaultFactory} from "src/VaultFactory.sol";
-import {VaultAdapter} from "src/VaultAdapter.sol";
+import {VaultAdapter} from "src/library/VaultAdapter.sol";
 import {DeployHelper} from "script/utils/DeployHelper.sol";
 
 contract MetaVaultTest is Test {

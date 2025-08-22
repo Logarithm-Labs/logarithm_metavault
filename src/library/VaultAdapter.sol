@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {ILogarithmVault} from "./interfaces/ILogarithmVault.sol";
+import {ILogarithmVault} from "../interfaces/ILogarithmVault.sol";
 
 library VaultAdapter {
     /// @notice Deposit assets into a target vault.
