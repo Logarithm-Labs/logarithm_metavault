@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
-import {LogarithmVault} from "managed_basis/vault/LogarithmVault.sol";
+import {LogarithmVault} from "@managed_basis/vault/LogarithmVault.sol";
 
 contract MockStrategy {
     ERC20Mock public asset;

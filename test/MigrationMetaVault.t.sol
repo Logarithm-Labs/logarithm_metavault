@@ -4,15 +4,13 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
-import {LogarithmVault} from "managed_basis/vault/LogarithmVault.sol";
+import {LogarithmVault} from "@managed_basis/vault/LogarithmVault.sol";
 import {MockStrategy} from "test/mock/MockStrategy.sol";
 import {VaultRegistry} from "src/VaultRegistry.sol";
 import {MigrationMetaVault} from "src/MigrationMetaVault.sol";
 import {MetaVault} from "src/MetaVault.sol";
 import {VaultFactory} from "src/VaultFactory.sol";
 import {DeployHelper} from "script/utils/DeployHelper.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {VaultAdapter} from "src/library/VaultAdapter.sol";
 
 contract MigrationMetaVaultTest is Test {
