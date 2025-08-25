@@ -69,10 +69,6 @@ abstract contract AllocationManager {
         emit Allocated(target, assets, shares);
     }
 
-    function _addAllocatedTarget(address target) internal virtual {
-        _getAllocationStorage().allocatedTargets.add(target);
-    }
-
     function _allocateBatch(address[] memory targets, uint256[] memory assets) internal virtual {
         uint256 len = targets.length;
         if (assets.length != len) revert AAM__InvalidInputLength();
@@ -95,16 +91,8 @@ abstract contract AllocationManager {
         uint256 afterBal = IERC20(_allocationAsset()).balanceOf(receiver);
         uint256 immediate = afterBal > beforeBal ? (afterBal - beforeBal) : 0;
         uint256 pending = assets > immediate ? (assets - immediate) : 0;
+        _addWithdrawKey(target, key, pending);
         emit AllocationWithdrawn(target, receiver, assets, key);
-        if (key != bytes32(0)) {
-            AllocationStorage storage $ = _getAllocationStorage();
-            $.claimableTargets.add(target);
-            $.withdrawKeysByTarget[target].add(key);
-            if (pending > 0) {
-                $.requestedAssetsByKey[target][key] = pending;
-            }
-        }
-        _maybePruneAllocated(target);
     }
 
     function _redeemAllocation(address target, uint256 shares, address receiver) internal virtual {
@@ -115,16 +103,8 @@ abstract contract AllocationManager {
         uint256 afterBal = IERC20(_allocationAsset()).balanceOf(receiver);
         uint256 immediate = afterBal > beforeBal ? (afterBal - beforeBal) : 0;
         uint256 pending = previewAssets > immediate ? (previewAssets - immediate) : 0;
+        _addWithdrawKey(target, key, pending);
         emit AllocationRedeemed(target, receiver, shares, key);
-        if (key != bytes32(0)) {
-            AllocationStorage storage $ = _getAllocationStorage();
-            $.claimableTargets.add(target);
-            $.withdrawKeysByTarget[target].add(key);
-            if (pending > 0) {
-                $.requestedAssetsByKey[target][key] = pending;
-            }
-        }
-        _maybePruneAllocated(target);
     }
 
     function _withdrawAllocationBatch(address[] memory targets, uint256[] memory assets, address receiver)
@@ -268,15 +248,31 @@ abstract contract AllocationManager {
                            INTERNAL HELPERS
     //////////////////////////////////////////////////////////////*/
 
-    function _removeWithdrawKey(address target, bytes32 key) private {
-        AllocationStorage storage $ = _getAllocationStorage();
-        $.withdrawKeysByTarget[target].remove(key);
-        delete $.requestedAssetsByKey[target][key];
+    function _addAllocatedTarget(address target) internal {
+        _getAllocationStorage().allocatedTargets.add(target);
     }
 
-    function _maybePruneAllocated(address target) private {
+    function _maybePruneAllocated(address target) internal {
         if (VaultAdapter.shareBalanceOf(target, address(this)) == 0) {
             _getAllocationStorage().allocatedTargets.remove(target);
         }
+    }
+
+    function _addWithdrawKey(address target, bytes32 key, uint256 pending) internal {
+        if (key != bytes32(0)) {
+            AllocationStorage storage $ = _getAllocationStorage();
+            $.claimableTargets.add(target);
+            $.withdrawKeysByTarget[target].add(key);
+            if (pending > 0) {
+                $.requestedAssetsByKey[target][key] = pending;
+            }
+        }
+        _maybePruneAllocated(target);
+    }
+
+    function _removeWithdrawKey(address target, bytes32 key) internal {
+        AllocationStorage storage $ = _getAllocationStorage();
+        $.withdrawKeysByTarget[target].remove(key);
+        delete $.requestedAssetsByKey[target][key];
     }
 }
