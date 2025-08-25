@@ -474,25 +474,9 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
         _requireNotShutdown();
         _claimAllocations();
         uint256 _idleAssets = idleAssets();
-        uint256 len = targets.length;
-        if (assets.length != len) revert MV__InvalidParamLength();
-        uint256 assetsAllocated;
-        for (uint256 i; i < len;) {
-            address target = targets[i];
-            _validateTarget(target);
-            uint256 assetAmount = assets[i];
-            if (assetAmount > 0) {
-                _allocate(target, assetAmount);
-                unchecked {
-                    assetsAllocated += assetAmount;
-                }
-            }
-            unchecked {
-                ++i;
-            }
-        }
+        uint256 totalAssets = _allocateBatch(targets, assets);
 
-        if (assetsAllocated > _idleAssets) {
+        if (totalAssets > _idleAssets) {
             revert MV__OverAllocation();
         }
     }
@@ -579,16 +563,6 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
                            INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev validate if target is registered
-    function _validateTarget(address target) internal view {
-        address _vaultRegistry = vaultRegistry();
-        if (_vaultRegistry != address(0)) {
-            if (!IVaultRegistry(_vaultRegistry).isApproved(target)) {
-                revert MV__InvalidTargetAllocation();
-            }
-        }
-    }
-
     function _requireNotShutdown() internal view {
         if (isShutdown()) {
             revert MV__Shutdown();
@@ -601,6 +575,16 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
 
     function _allocationAsset() internal view virtual override returns (address) {
         return asset();
+    }
+
+    /// @dev validate if target is registered
+    function _validateTarget(address target) internal view virtual override {
+        address _vaultRegistry = vaultRegistry();
+        if (_vaultRegistry != address(0)) {
+            if (!IVaultRegistry(_vaultRegistry).isApproved(target)) {
+                revert MV__InvalidTargetAllocation();
+            }
+        }
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -11,10 +11,10 @@ library VaultAdapter {
     }
 
     /// @notice Request to withdraw assets from a target vault. Falls back to synchronous withdraw if async is unsupported.
-    /// @return withdrawKey bytes32(0) if fulfilled synchronously; non-zero for async requests.
+    /// @return bytes32(0) if fulfilled synchronously; non-zero for async requests.
     function tryRequestWithdraw(address target, uint256 assets, address receiver, address owner)
         internal
-        returns (bytes32 withdrawKey)
+        returns (bytes32)
     {
         // Prefer async interface if supported
         try ILogarithmVault(target).requestWithdraw(assets, receiver, owner) returns (bytes32 key) {
@@ -27,10 +27,10 @@ library VaultAdapter {
     }
 
     /// @notice Request to redeem shares from a target vault. Falls back to synchronous redeem if async is unsupported.
-    /// @return withdrawKey bytes32(0) if fulfilled synchronously; non-zero for async requests.
+    /// @return bytes32(0) if fulfilled synchronously; non-zero for async requests.
     function tryRequestRedeem(address target, uint256 shares, address receiver, address owner)
         internal
-        returns (bytes32 withdrawKey)
+        returns (bytes32)
     {
         // Prefer async interface if supported
         try ILogarithmVault(target).requestRedeem(shares, receiver, owner) returns (bytes32 key) {
@@ -76,7 +76,7 @@ library VaultAdapter {
 
     /// @notice Preview assets for a given amount of shares on a target vault.
     /// @dev Tries previewRedeem first; falls back to convertToAssets.
-    function tryPreviewAssets(address target, uint256 shares) internal view returns (uint256 assets) {
+    function tryPreviewAssets(address target, uint256 shares) internal view returns (uint256) {
         try IERC4626(target).previewRedeem(shares) returns (uint256 previewAssets) {
             return previewAssets;
         } catch {
@@ -85,13 +85,13 @@ library VaultAdapter {
     }
 
     /// @notice Convert assets to shares on a target vault.
-    function convertToShares(address target, uint256 assets) internal view returns (uint256 shares) {
+    function convertToShares(address target, uint256 assets) internal view returns (uint256) {
         return IERC4626(target).convertToShares(assets);
     }
 
     /// @notice Preview shares for a given amount of assets on a target vault.
     /// @dev Tries previewAssets first; falls back to convertToShares.
-    function tryPreviewShares(address target, uint256 assets) internal view returns (uint256 shares) {
+    function tryPreviewShares(address target, uint256 assets) internal view returns (uint256) {
         try IERC4626(target).previewWithdraw(assets) returns (uint256 previewShares) {
             return previewShares;
         } catch {
@@ -100,7 +100,7 @@ library VaultAdapter {
     }
 
     /// @notice Convert shares to assets on a target vault.
-    function convertToAssets(address target, uint256 shares) internal view returns (uint256 assets) {
+    function convertToAssets(address target, uint256 shares) internal view returns (uint256) {
         return IERC4626(target).convertToAssets(shares);
     }
 

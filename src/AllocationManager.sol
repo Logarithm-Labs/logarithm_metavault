@@ -56,6 +56,7 @@ abstract contract AllocationManager {
     //////////////////////////////////////////////////////////////*/
 
     function _allocationAsset() internal view virtual returns (address);
+    function _validateTarget(address target) internal view virtual;
 
     /*//////////////////////////////////////////////////////////////
                                ALLOCATE
@@ -63,21 +64,28 @@ abstract contract AllocationManager {
 
     function _allocate(address target, uint256 assets) internal virtual {
         if (assets == 0) return;
+        _validateTarget(target);
         IERC20(_allocationAsset()).forceApprove(target, assets);
         uint256 shares = VaultAdapter.deposit(target, assets, address(this));
         _addAllocatedTarget(target);
         emit Allocated(target, assets, shares);
     }
 
-    function _allocateBatch(address[] memory targets, uint256[] memory assets) internal virtual {
+    function _allocateBatch(address[] memory targets, uint256[] memory assets)
+        internal
+        virtual
+        returns (uint256 totalAssets)
+    {
         uint256 len = targets.length;
         if (assets.length != len) revert AAM__InvalidInputLength();
         for (uint256 i; i < len;) {
             _allocate(targets[i], assets[i]);
             unchecked {
+                totalAssets += assets[i];
                 ++i;
             }
         }
+        return totalAssets;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -110,29 +118,35 @@ abstract contract AllocationManager {
     function _withdrawAllocationBatch(address[] memory targets, uint256[] memory assets, address receiver)
         internal
         virtual
+        returns (uint256 totalAssets)
     {
         uint256 len = targets.length;
         if (assets.length != len) revert AAM__InvalidInputLength();
         for (uint256 i; i < len;) {
             _withdrawAllocation(targets[i], assets[i], receiver);
             unchecked {
+                totalAssets += assets[i];
                 ++i;
             }
         }
+        return totalAssets;
     }
 
     function _redeemAllocationBatch(address[] memory targets, uint256[] memory shares, address receiver)
         internal
         virtual
+        returns (uint256 totalShares)
     {
         uint256 len = targets.length;
         if (shares.length != len) revert AAM__InvalidInputLength();
         for (uint256 i; i < len;) {
             _redeemAllocation(targets[i], shares[i], receiver);
             unchecked {
+                totalShares += shares[i];
                 ++i;
             }
         }
+        return totalShares;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -224,18 +238,17 @@ abstract contract AllocationManager {
             uint256 keyLen = keys.length;
             for (uint256 j; j < keyLen;) {
                 bytes32 key = keys[j];
+                if (!VaultAdapter.tryIsClaimed(target, key)) {
+                    uint256 amt = $.requestedAssetsByKey[target][key];
+                    bool ok = VaultAdapter.tryIsClaimable(target, key);
+                    if (ok) {
+                        claimable += amt;
+                    } else {
+                        pendingRequested += amt;
+                    }
+                }
                 unchecked {
                     ++j;
-                }
-                if (VaultAdapter.tryIsClaimed(target, key)) {
-                    continue;
-                }
-                uint256 amt = $.requestedAssetsByKey[target][key];
-                bool ok = VaultAdapter.tryIsClaimable(target, key);
-                if (ok) {
-                    claimable += amt;
-                } else {
-                    pendingRequested += amt;
                 }
             }
             unchecked {

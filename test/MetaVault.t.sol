@@ -183,6 +183,21 @@ contract MetaVaultTest is Test {
         vault.allocate(targets, amounts);
     }
 
+    function test_revert_allocateWithOverAllocation() public afterAllocated afterFullyUtilized {
+        vm.startPrank(user);
+        vault.requestWithdraw(THOUSANDx6 * 4, user, user);
+        assertEq(vault.idleAssets(), 0, "idleAssets should be 0");
+        strategy_1.deutilize(THOUSANDx6);
+
+        vm.startPrank(curator);
+        address[] memory targets = new address[](1);
+        targets[0] = address(logVault_2);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = THOUSANDx6 / 2;
+        vm.expectRevert(MetaVault.MV__OverAllocation.selector);
+        vault.allocate(targets, amounts);
+    }
+
     function test_withdrawAllocations_withIdle() public afterAllocated {
         vm.startPrank(curator);
         address[] memory targets = new address[](1);
