@@ -474,9 +474,9 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
         _requireNotShutdown();
         _claimAllocations();
         uint256 _idleAssets = idleAssets();
-        uint256 totalAssets = _allocateBatch(targets, assets);
+        uint256 assetsAllocated = _allocateBatch(targets, assets);
 
-        if (totalAssets > _idleAssets) {
+        if (assetsAllocated > _idleAssets) {
             revert MV__OverAllocation();
         }
     }
