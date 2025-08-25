@@ -10,18 +10,17 @@ import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC2
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {NoncesUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/NoncesUpgradeable.sol";
 
-import {ManagedVault} from "managed_basis/vault/ManagedVault.sol";
+import {CostAwareManagedVault} from "./CostAwareManagedVault.sol";
 import {AllocationManager} from "./AllocationManager.sol";
 import {VaultAdapter} from "./library/VaultAdapter.sol";
-
-import {IVaultRegistry} from "src/interfaces/IVaultRegistry.sol";
+import {IVaultRegistry} from "./interfaces/IVaultRegistry.sol";
 
 /// @title MetaVault
 /// @author Logarithm Labs
 /// @notice Vault implementation that is used by vault factory
 /// @dev This smart contract is for allocating/deallocating assets to/from the vaults
 /// @dev For the target vaults, they are LogarithmVaults (Async-one) and standard ERC4626 vaults
-contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgradeable {
+contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, NoncesUpgradeable {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using SafeERC20 for IERC20;
@@ -466,6 +465,11 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
                              CURATOR LOGIC
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev Reserve allocation cost
+    function _processCost(uint256 cost) internal virtual override {
+        if (cost > 0) _reserveAllocationCost(cost);
+    }
+
     /// @notice Allocate the idle assets to the logarithm vaults
     ///
     /// @param targets Address array of the target vaults that are registered
@@ -516,8 +520,9 @@ contract MetaVault is Initializable, ManagedVault, AllocationManager, NoncesUpgr
     function totalAssets() public view override returns (uint256) {
         uint256 assetBalance = IERC20(asset()).balanceOf(address(this));
         (uint256 requestedAssets, uint256 claimableAssets) = allocationPendingAndClaimable();
-        (, uint256 assets) =
-            (assetBalance + allocatedAssets() + requestedAssets + claimableAssets).trySub(assetsToClaim());
+        (, uint256 assets) = (assetBalance + allocatedAssets() + requestedAssets + claimableAssets).trySub(
+            assetsToClaim() + reservedAllocationCost()
+        );
         return assets;
     }
 

@@ -19,13 +19,14 @@ abstract contract AllocationManager {
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
-    error AAM__InvalidInputLength();
+    error AM__InvalidInputLength();
+    error AM__InsufficientReservedAllocationCost();
 
     /*//////////////////////////////////////////////////////////////
                                EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event Allocated(address indexed target, uint256 assets, uint256 shares);
+    event Allocated(address indexed target, uint256 assets, uint256 shares, uint256 allocationCost);
     event AllocationWithdrawn(address indexed target, address indexed receiver, uint256 assets, bytes32 withdrawKey);
     event AllocationRedeemed(address indexed target, address indexed receiver, uint256 shares, bytes32 withdrawKey);
 
@@ -39,6 +40,7 @@ abstract contract AllocationManager {
         mapping(address target => EnumerableSet.Bytes32Set) withdrawKeysByTarget;
         // Track requested asset amounts per target/key for accounting
         mapping(address target => mapping(bytes32 key => uint256 assets)) requestedAssetsByKey;
+        uint256 reservedAllocationCost;
     }
 
     // keccak256(abi.encode(uint256(keccak256("logarithm.storage.AllocationManager")) - 1)) & ~bytes32(uint256(0xff))
@@ -62,13 +64,31 @@ abstract contract AllocationManager {
                                ALLOCATE
     //////////////////////////////////////////////////////////////*/
 
-    function _allocate(address target, uint256 assets) internal virtual {
-        if (assets == 0) return;
+    function _allocate(address target, uint256 assets) internal virtual returns (uint256 allocationCost) {
+        if (assets == 0) return allocationCost;
         _validateTarget(target);
         IERC20(_allocationAsset()).forceApprove(target, assets);
         uint256 shares = VaultAdapter.deposit(target, assets, address(this));
         _addAllocatedTarget(target);
-        emit Allocated(target, assets, shares);
+        uint256 assetsAfter = VaultAdapter.tryPreviewAssets(target, shares);
+        allocationCost = assets > assetsAfter ? (assets - assetsAfter) : 0;
+        _depleteAllocationCost(allocationCost);
+
+        emit Allocated(target, assets, shares, allocationCost);
+
+        return allocationCost;
+    }
+
+    function _reserveAllocationCost(uint256 amount) internal {
+        _getAllocationStorage().reservedAllocationCost += amount;
+    }
+
+    function _depleteAllocationCost(uint256 amount) internal {
+        uint256 currentReserved = _getAllocationStorage().reservedAllocationCost;
+        if (amount > currentReserved) {
+            revert AM__InsufficientReservedAllocationCost();
+        }
+        _getAllocationStorage().reservedAllocationCost = currentReserved - amount;
     }
 
     function _allocateBatch(address[] memory targets, uint256[] memory assets)
@@ -77,7 +97,7 @@ abstract contract AllocationManager {
         returns (uint256 totalAssets)
     {
         uint256 len = targets.length;
-        if (assets.length != len) revert AAM__InvalidInputLength();
+        if (assets.length != len) revert AM__InvalidInputLength();
         for (uint256 i; i < len;) {
             _allocate(targets[i], assets[i]);
             unchecked {
@@ -121,7 +141,7 @@ abstract contract AllocationManager {
         returns (uint256 totalAssets)
     {
         uint256 len = targets.length;
-        if (assets.length != len) revert AAM__InvalidInputLength();
+        if (assets.length != len) revert AM__InvalidInputLength();
         for (uint256 i; i < len;) {
             _withdrawAllocation(targets[i], assets[i], receiver);
             unchecked {
@@ -138,7 +158,7 @@ abstract contract AllocationManager {
         returns (uint256 totalShares)
     {
         uint256 len = targets.length;
-        if (shares.length != len) revert AAM__InvalidInputLength();
+        if (shares.length != len) revert AM__InvalidInputLength();
         for (uint256 i; i < len;) {
             _redeemAllocation(targets[i], shares[i], receiver);
             unchecked {
@@ -192,6 +212,10 @@ abstract contract AllocationManager {
     /*//////////////////////////////////////////////////////////////
                                VIEWS
     //////////////////////////////////////////////////////////////*/
+
+    function reservedAllocationCost() public view returns (uint256) {
+        return _getAllocationStorage().reservedAllocationCost;
+    }
 
     function allocatedTargets() public view returns (address[] memory) {
         return _getAllocationStorage().allocatedTargets.values();
