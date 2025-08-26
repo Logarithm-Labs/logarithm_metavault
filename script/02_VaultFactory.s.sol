@@ -2,7 +2,6 @@
 pragma solidity ^0.8.0;
 
 import {Script} from "forge-std/Script.sol";
-import {DeployHelper} from "./utils/DeployHelper.sol";
 import {VaultFactory} from "../src/VaultFactory.sol";
 import {MetaVault} from "../src/MetaVault.sol";
 import {BaseAddress, ArbitrumAddress} from "./utils/Address.sol";

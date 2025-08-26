@@ -30,13 +30,12 @@ contract MigrationMetaVault is MetaVault {
         }
 
         // derive target assets from target shares
-        uint256 targetAssets = VaultAdapter.tryPreviewAssets(targetVault, targetShares);
+        uint256 targetAssets = VaultAdapter.convertToAssets(targetVault, targetShares);
 
         // derive meta vault shares from target assets
-        uint256 shares = convertToShares(targetAssets);
+        uint256 shares = _convertToShares(targetAssets, Math.Rounding.Floor);
 
         _migrate(receiver, _msgSender(), targetVault, targetShares, targetAssets, shares);
-        _withdrawTargetIdleAssets(targetVault, targetAssets);
 
         return shares;
     }
@@ -56,14 +55,5 @@ contract MigrationMetaVault is MetaVault {
         _mint(receiver, shares);
 
         emit Migrated(owner, targetVault, targetShares, targetAssets, shares);
-    }
-
-    /// @dev Withdraw idle assets from target vault to avoid duplicated consideration with multiple migrations
-    function _withdrawTargetIdleAssets(address targetVault, uint256 targetAssets) internal virtual {
-        uint256 idleAssets = VaultAdapter.tryIdleAssets(targetVault);
-        uint256 amountToWithdraw = Math.min(idleAssets, targetAssets);
-        if (amountToWithdraw > 0) {
-            _withdrawAllocation(targetVault, amountToWithdraw, address(this));
-        }
     }
 }

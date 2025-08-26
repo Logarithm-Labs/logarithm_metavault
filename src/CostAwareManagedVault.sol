@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-
 import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {ManagedVault} from "@managed_basis/vault/ManagedVault.sol";
+
+import {VaultAdapter} from "./library/VaultAdapter.sol";
 
 /// @title CostAwareManagedVault
 /// @author Logarithm Labs
@@ -16,7 +15,6 @@ import {ManagedVault} from "@managed_basis/vault/ManagedVault.sol";
 abstract contract CostAwareManagedVault is ManagedVault {
     using Math for uint256;
 
-    uint256 private constant _BASIS_POINT_SCALE = 1e4; // 100%
     uint256 private constant _MAX_ENTRY_COST_BPS = 100; // 1%
 
     event EntryCostUpdated(address indexed caller, uint256 newCost);
@@ -84,7 +82,7 @@ abstract contract CostAwareManagedVault is ManagedVault {
     }
 
     function _previewDepositWithCost(uint256 assets) private view returns (uint256 shares, uint256 cost) {
-        cost = _costOnTotal(assets, entryCostBps());
+        cost = VaultAdapter.costOnTotal(assets, entryCostBps());
         assets -= cost;
 
         shares = _convertToShares(assets, Math.Rounding.Floor);
@@ -93,7 +91,7 @@ abstract contract CostAwareManagedVault is ManagedVault {
 
     function _previewMintWithCost(uint256 shares) private view returns (uint256 assets, uint256 cost) {
         assets = _convertToAssets(shares, Math.Rounding.Ceil);
-        cost = _costOnRaw(assets, entryCostBps());
+        cost = VaultAdapter.costOnRaw(assets, entryCostBps());
         assets += cost;
         return (assets, cost);
     }
@@ -133,18 +131,6 @@ abstract contract CostAwareManagedVault is ManagedVault {
     /*//////////////////////////////////////////////////////////////
                             HELPER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-
-    /// @dev Calculates the cost that should be added to an amount `assets` that does not include cost.
-    /// Used in {IERC4626-mint} and {IERC4626-withdraw} operations.
-    function _costOnRaw(uint256 assets, uint256 costBps) private pure returns (uint256) {
-        return assets.mulDiv(costBps, _BASIS_POINT_SCALE, Math.Rounding.Ceil);
-    }
-
-    /// @dev Calculates the cost part of an amount `assets` that already includes cost.
-    /// Used in {IERC4626-deposit} and {IERC4626-redeem} operations.
-    function _costOnTotal(uint256 assets, uint256 costBps) private pure returns (uint256) {
-        return assets.mulDiv(costBps, costBps + _BASIS_POINT_SCALE, Math.Rounding.Ceil);
-    }
 
     /*//////////////////////////////////////////////////////////////
                             STORAGE VIEWERS

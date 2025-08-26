@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {VaultAdapter} from "./library/VaultAdapter.sol";
 
@@ -64,19 +65,17 @@ abstract contract AllocationManager {
                                ALLOCATE
     //////////////////////////////////////////////////////////////*/
 
-    function _allocate(address target, uint256 assets) internal virtual returns (uint256 allocationCost) {
-        if (assets == 0) return allocationCost;
+    function _allocate(address target, uint256 assets) internal virtual {
+        if (assets == 0) return;
         _validateTarget(target);
         IERC20(_allocationAsset()).forceApprove(target, assets);
         uint256 shares = VaultAdapter.deposit(target, assets, address(this));
         _addAllocatedTarget(target);
-        uint256 assetsAfter = VaultAdapter.tryPreviewAssets(target, shares);
-        allocationCost = assets > assetsAfter ? (assets - assetsAfter) : 0;
+        uint256 assetsAfter = VaultAdapter.convertToAssets(target, shares);
+        uint256 allocationCost = assets > assetsAfter ? (assets - assetsAfter) : 0;
         _depleteAllocationCost(allocationCost);
 
         emit Allocated(target, assets, shares, allocationCost);
-
-        return allocationCost;
     }
 
     function _reserveAllocationCost(uint256 amount) internal {
@@ -138,35 +137,86 @@ abstract contract AllocationManager {
     function _withdrawAllocationBatch(address[] memory targets, uint256[] memory assets, address receiver)
         internal
         virtual
-        returns (uint256 totalAssets)
     {
         uint256 len = targets.length;
         if (assets.length != len) revert AM__InvalidInputLength();
         for (uint256 i; i < len;) {
             _withdrawAllocation(targets[i], assets[i], receiver);
             unchecked {
-                totalAssets += assets[i];
                 ++i;
             }
         }
-        return totalAssets;
     }
 
     function _redeemAllocationBatch(address[] memory targets, uint256[] memory shares, address receiver)
         internal
         virtual
-        returns (uint256 totalShares)
     {
         uint256 len = targets.length;
         if (shares.length != len) revert AM__InvalidInputLength();
         for (uint256 i; i < len;) {
             _redeemAllocation(targets[i], shares[i], receiver);
             unchecked {
-                totalShares += shares[i];
                 ++i;
             }
         }
-        return totalShares;
+    }
+
+    /// @dev Withdraw from target vault idle assets
+    function _withdrawFromTargetIdleAssets(uint256 assetsToWithdraw) internal {
+        if (assetsToWithdraw == 0) return;
+
+        // Withdraw from target vault idle assets
+        address[] memory targets = allocatedTargets();
+        uint256 len = targets.length;
+        for (uint256 i; i < len && assetsToWithdraw > 0;) {
+            address target = targets[i];
+            // Check if target vault has idle assets that can be withdrawn immediately
+            uint256 targetIdleAssets = VaultAdapter.tryIdleAssets(target);
+            if (targetIdleAssets > 0) {
+                uint256 assetsToWithdrawFromTarget = Math.min(assetsToWithdraw, targetIdleAssets);
+                if (assetsToWithdrawFromTarget > 0) {
+                    // Withdraw idle assets immediately from target vault
+                    _withdrawAllocation(target, assetsToWithdrawFromTarget, address(this));
+                    unchecked {
+                        assetsToWithdraw -= assetsToWithdrawFromTarget;
+                    }
+                }
+            }
+            unchecked {
+                i++;
+            }
+        }
+    }
+
+    /// @dev Withdraw from allocations in the ascending order of exit cost
+    function _withdrawFromAllocations(uint256 assetsToWithdraw) internal {
+        if (assetsToWithdraw == 0) return;
+
+        uint256 remainingAssets = assetsToWithdraw;
+
+        address[] memory targets = allocatedTargets();
+        uint256 length = targets.length;
+        // Sort targets by exit cost (ascending order)
+        VaultAdapter.insertionSortTargetsByExitCost(targets, length, true);
+
+        for (uint256 i; i < length && remainingAssets > 0;) {
+            address target = targets[i];
+            uint256 targetShares = VaultAdapter.shareBalanceOf(target, address(this));
+
+            if (targetShares > 0) {
+                // Calculate how much we can withdraw from this target's shares
+                uint256 targetAssets = VaultAdapter.tryPreviewAssets(target, targetShares);
+                uint256 assetsToRequest = Math.min(remainingAssets, targetAssets);
+                _withdrawAllocation(target, assetsToRequest, address(this));
+                unchecked {
+                    remainingAssets -= assetsToRequest;
+                }
+            }
+            unchecked {
+                i++;
+            }
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -244,7 +294,7 @@ abstract contract AllocationManager {
     function allocatedAssetsFor(address target) public view returns (uint256 assets) {
         uint256 shares = VaultAdapter.shareBalanceOf(target, address(this));
         if (shares > 0) {
-            assets = VaultAdapter.tryPreviewAssets(target, shares);
+            assets = VaultAdapter.convertToAssets(target, shares);
         }
         return assets;
     }
@@ -311,5 +361,68 @@ abstract contract AllocationManager {
         AllocationStorage storage $ = _getAllocationStorage();
         $.withdrawKeysByTarget[target].remove(key);
         delete $.requestedAssetsByKey[target][key];
+    }
+
+    function _previewAllocationExitCostOnRaw(uint256 assets) internal view returns (uint256 cost) {
+        if (assets == 0) return 0;
+
+        address[] memory targets = allocatedTargets();
+        uint256 length = targets.length;
+        if (length == 0) return 0;
+
+        VaultAdapter.insertionSortTargetsByExitCost(targets, length, true);
+
+        for (uint256 i; i < length && assets > 0;) {
+            address target = targets[i];
+            uint256 targetShares = VaultAdapter.shareBalanceOf(target, address(this));
+
+            if (targetShares > 0) {
+                uint256 rawAssets = VaultAdapter.tryPreviewAssets(target, targetShares);
+                uint256 rawAssetsToWithdraw = Math.min(rawAssets, assets);
+                uint256 exitCost = VaultAdapter.tryExitCostOnRaw(target, rawAssetsToWithdraw);
+
+                unchecked {
+                    cost += exitCost;
+                    assets -= rawAssetsToWithdraw;
+                }
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        return cost;
+    }
+
+    function _previewAllocationExitCostOnTotal(uint256 assets) internal view returns (uint256 cost) {
+        if (assets == 0) return 0;
+
+        address[] memory targets = allocatedTargets();
+        uint256 length = targets.length;
+        if (length == 0) return 0;
+
+        VaultAdapter.insertionSortTargetsByExitCost(targets, length, true);
+
+        for (uint256 i; i < length && assets > 0;) {
+            address target = targets[i];
+            uint256 targetShares = VaultAdapter.shareBalanceOf(target, address(this));
+
+            if (targetShares > 0) {
+                uint256 totalAssets = VaultAdapter.convertToAssets(target, targetShares);
+                uint256 totalAssetsToWithdraw = Math.min(totalAssets, assets);
+                uint256 exitCost = VaultAdapter.tryExitCostOnTotal(target, totalAssetsToWithdraw);
+                unchecked {
+                    cost += exitCost;
+                    assets -= totalAssetsToWithdraw;
+                }
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        return cost;
     }
 }

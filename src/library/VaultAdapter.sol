@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ILogarithmVault} from "../interfaces/ILogarithmVault.sol";
 
 library VaultAdapter {
+    using Math for uint256;
+
+    uint256 private constant _BASIS_POINT_SCALE = 1e4; // 100%
+
     /// @notice Deposit assets into a target vault.
     function deposit(address target, uint256 assets, address receiver) internal returns (uint256) {
         return IERC4626(target).deposit(assets, receiver);
@@ -168,6 +173,69 @@ library VaultAdapter {
         } catch {
             // For non-LogarithmVaults, return 0 (no exit cost concept)
             return 0;
+        }
+    }
+
+    function tryExitCostOnRaw(address target, uint256 assets) internal view returns (uint256) {
+        uint256 exitCost = tryExitCost(target);
+        if (exitCost == 0) return 0;
+        return costOnRaw(assets, exitCost);
+    }
+
+    function tryExitCostOnTotal(address target, uint256 assets) internal view returns (uint256) {
+        uint256 exitCost = tryExitCost(target);
+        if (exitCost == 0) return 0;
+        return costOnTotal(assets, exitCost);
+    }
+
+    /// @dev Calculates the cost that should be added to an amount `assets` that does not include cost.
+    /// Used in {IERC4626-mint} and {IERC4626-withdraw} operations.
+    function costOnRaw(uint256 assets, uint256 costBpsOrRate) internal pure returns (uint256) {
+        uint256 denominator = costBpsOrRate > _BASIS_POINT_SCALE ? 1 ether : _BASIS_POINT_SCALE;
+        return assets.mulDiv(costBpsOrRate, denominator, Math.Rounding.Ceil);
+    }
+
+    /// @dev Calculates the cost part of an amount `assets` that already includes cost.
+    /// Used in {IERC4626-deposit} and {IERC4626-redeem} operations.
+    function costOnTotal(uint256 assets, uint256 costBpsOrRate) internal pure returns (uint256) {
+        uint256 denominator =
+            costBpsOrRate > _BASIS_POINT_SCALE ? costBpsOrRate + 1 ether : costBpsOrRate + _BASIS_POINT_SCALE;
+        return assets.mulDiv(costBpsOrRate, denominator, Math.Rounding.Ceil);
+    }
+
+    /// @dev Insertion sort for targets by exit cost
+    /// @param targets Array of target vault addresses
+    /// @param length The length of the array to sort
+    function insertionSortTargetsByExitCost(address[] memory targets, uint256 length, bool ascending) internal view {
+        if (length <= 1) return;
+
+        for (uint256 i = 1; i < length;) {
+            address key = targets[i];
+            uint256 keyExitCost = VaultAdapter.tryExitCost(key);
+            uint256 j;
+
+            unchecked {
+                j = i - 1;
+            }
+
+            while (
+                j != type(uint256).max
+                    && (
+                        ascending
+                            ? VaultAdapter.tryExitCost(targets[j]) > keyExitCost
+                            : VaultAdapter.tryExitCost(targets[j]) < keyExitCost
+                    )
+            ) {
+                unchecked {
+                    targets[j + 1] = targets[j];
+                    --j;
+                }
+            }
+
+            unchecked {
+                targets[j + 1] = key;
+                ++i;
+            }
         }
     }
 }

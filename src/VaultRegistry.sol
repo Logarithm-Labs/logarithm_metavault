@@ -27,12 +27,12 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     // keccak256(abi.encode(uint256(keccak256("logarithm.storage.VaultRegistry")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant VaultRegistryStorageLocation =
+    bytes32 private constant VAULT_REGISTRY_STORAGE_LOCATION =
         0xeb8ff60d146ce7fa958a118578ef28883928c44fc7c24bb6e5d90448571b7b00;
 
     function _getVaultRegistryStorage() private pure returns (VaultRegistryStorage storage $) {
         assembly {
-            $.slot := VaultRegistryStorageLocation
+            $.slot := VAULT_REGISTRY_STORAGE_LOCATION
         }
     }
 
