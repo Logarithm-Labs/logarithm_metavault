@@ -83,6 +83,7 @@ abstract contract AllocationManager {
     }
 
     function _depleteAllocationCost(uint256 amount) internal {
+        if (amount == 0) return;
         uint256 currentReserved = _getAllocationStorage().reservedAllocationCost;
         if (amount > currentReserved) {
             revert AM__InsufficientReservedAllocationCost();
@@ -174,7 +175,10 @@ abstract contract AllocationManager {
             // Check if target vault has idle assets that can be withdrawn immediately
             uint256 targetIdleAssets = VaultAdapter.tryIdleAssets(target);
             if (targetIdleAssets > 0) {
-                uint256 assetsToWithdrawFromTarget = Math.min(assetsToWithdraw, targetIdleAssets);
+                uint256 targetShares = VaultAdapter.shareBalanceOf(target, address(this));
+                uint256 targetAssets = VaultAdapter.tryPreviewAssets(target, targetShares);
+                uint256 availableAssets = Math.min(targetAssets, targetIdleAssets);
+                uint256 assetsToWithdrawFromTarget = Math.min(availableAssets, assetsToWithdraw);
                 if (assetsToWithdrawFromTarget > 0) {
                     // Withdraw idle assets immediately from target vault
                     _withdrawAllocation(target, assetsToWithdrawFromTarget, address(this));
