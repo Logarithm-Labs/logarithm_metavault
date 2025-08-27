@@ -2080,7 +2080,7 @@ contract MetaVaultTest is Test {
         vm.stopPrank();
         assertEq(vault.totalAssets(), totalAssetsBefore, "Total assets");
         assertEq(vault.idleAssets(), THOUSAND_6 * 5, "Idle assets");
-        // assertEq(vault.getTargetVaultsIdleAssets(), THOUSAND_6 * 2, "Target vaults idle assets");
+        assertEq(vault.getTargetVaultsIdleAssets(), THOUSAND_6 * 2, "Target vaults idle assets");
         _;
     }
 
@@ -2105,7 +2105,7 @@ contract MetaVaultTest is Test {
         assertEq(sharePriceAfterUtilize, sharePriceAfter, "Share price should be the same after utilize");
         assertEq(vault.totalAssets(), totalAssetsBefore, "Total assets");
         assertEq(vault.idleAssets(), THOUSAND_6 * 5, "Idle assets");
-        // assertEq(vault.getTargetVaultsIdleAssets(), 0, "Target vaults idle assets");
+        assertEq(vault.getTargetVaultsIdleAssets(), 0, "Target vaults idle assets");
         _;
     }
 
@@ -2520,6 +2520,6 @@ contract MetaVaultTest is Test {
                 MetaVault.MV__ExceededMinAssetsToReceive.selector, minAssetsToReceive, previewedAssets
             )
         );
-        vault.requestWithdraw(amount, user, user, minAssetsToReceive);
+        vault.requestRedeem(amount, user, user, minAssetsToReceive);
     }
 }
