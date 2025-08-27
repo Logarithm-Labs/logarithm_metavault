@@ -7,6 +7,7 @@ import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {LogarithmVault} from "@managed_basis/vault/LogarithmVault.sol";
 import {MockStrategy} from "test/mock/MockStrategy.sol";
 import {VaultRegistry} from "src/VaultRegistry.sol";
+import {AllocationManager} from "src/AllocationManager.sol";
 import {MetaVault} from "src/MetaVault.sol";
 import {VaultFactory} from "src/VaultFactory.sol";
 import {VaultAdapter} from "src/library/VaultAdapter.sol";
@@ -1930,29 +1931,561 @@ contract MetaVaultTest is Test {
                             ALLOCATION COST
     //////////////////////////////////////////////////////////////*/
 
+    uint256 strategyOneEntryCost = 0.002 ether;
+    uint256 strategyOneExitCost = 0.003 ether;
+    uint256 strategyTwoEntryCost = 0.001 ether;
+    uint256 strategyTwoExitCost = 0.001 ether;
+
+    address protocol = makeAddr("protocol");
+
     modifier withCostableTargetVaults() {
+        // deposit to lag vaults on behalf of protocol
+        uint256 protocolDeposit = THOUSAND_6;
+        asset.mint(protocol, 2 * protocolDeposit);
+        vm.startPrank(protocol);
+        asset.approve(address(logVaultOne), protocolDeposit);
+        logVaultOne.deposit(protocolDeposit, protocol);
+        strategyOne.utilize(protocolDeposit);
+        asset.approve(address(logVaultTwo), protocolDeposit);
+        logVaultTwo.deposit(protocolDeposit, protocol);
+        strategyTwo.utilize(protocolDeposit);
+        vm.stopPrank();
+
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0.002 ether, 0.003 ether);
-        logVaultTwo.setEntryAndExitCost(0.002 ether, 0.003 ether);
+        logVaultOne.setEntryAndExitCost(strategyOneEntryCost, strategyOneExitCost);
+        logVaultTwo.setEntryAndExitCost(strategyTwoEntryCost, strategyTwoExitCost);
         vm.stopPrank();
         _;
     }
 
+    uint256 entryCostBps = 15;
+
     modifier withEntryCost() {
         vm.startPrank(curator);
-        vault.setEntryCost(50);
+        vault.setEntryCost(entryCostBps);
         vm.stopPrank();
         _;
     }
 
     function test_costReservation() public withEntryCost withCostableTargetVaults {
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
         vm.startPrank(user);
         asset.approve(address(vault), THOUSAND_6);
         uint256 shares = vault.deposit(THOUSAND_6, user);
         vm.stopPrank();
-        assertEq(vault.reservedAllocationCost(), THOUSAND_6 * 5 / 1005, "Reserved allocation cost should be ");
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+        uint256 expectedCost = THOUSAND_6 * entryCostBps / (1e4 + entryCostBps) + 1;
+        assertEq(vault.reservedAllocationCost(), expectedCost, "Reserved allocation cost should be ");
+        assertEq(vault.previewRedeem(shares), THOUSAND_6 - expectedCost, "Redeem should return the correct amount");
+    }
+
+    function test_idleAssets_afterDeposit() public withEntryCost withCostableTargetVaults {
+        vm.startPrank(user);
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        asset.approve(address(vault), THOUSAND_6);
+        vault.deposit(THOUSAND_6, user);
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+        assertEq(vault.idleAssets(), THOUSAND_6 * 6, "Idle assets should be THOUSAND_6 * 6");
+    }
+
+    function test_utilizeCostReservation() public withEntryCost withCostableTargetVaults {
+        vm.startPrank(user);
+        asset.approve(address(vault), THOUSAND_6);
+        vault.deposit(THOUSAND_6, user);
+        vm.stopPrank();
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVaultOne);
+        targets[1] = address(logVaultTwo);
+        uint256[] memory assets = new uint256[](2);
+        assets[0] = THOUSAND_6 / 2;
+        assets[1] = THOUSAND_6 / 2;
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        vm.startPrank(curator);
+        vault.allocate(targets, assets);
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+        assertApproxEqAbs(vault.reservedAllocationCost(), 0, 1000, "Reserved allocation cost should be 0");
+    }
+
+    function test_revert_utilizeCostReservation() public withEntryCost withCostableTargetVaults {
+        vm.startPrank(user);
+        asset.approve(address(vault), THOUSAND_6);
+        vault.deposit(THOUSAND_6, user);
+        vm.stopPrank();
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVaultOne);
+        targets[1] = address(logVaultTwo);
+        uint256[] memory assets = new uint256[](2);
+        assets[0] = THOUSAND_6 / 2;
+        assets[1] = THOUSAND_6;
+        vm.startPrank(curator);
+        vm.expectRevert(AllocationManager.AM__InsufficientReservedAllocationCost.selector);
+        vault.allocate(targets, assets);
+    }
+
+    function test_totalAssets_afterAllocation() public withEntryCost withCostableTargetVaults {
+        uint256 initTotalAssets = vault.totalAssets();
+        vm.startPrank(user);
+        asset.approve(address(vault), THOUSAND_6);
+        vault.deposit(THOUSAND_6, user);
+        vm.stopPrank();
+        uint256 reservedAllocationCost = vault.reservedAllocationCost();
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVaultOne);
+        targets[1] = address(logVaultTwo);
+        uint256[] memory assets = new uint256[](2);
+        assets[0] = THOUSAND_6 / 2;
+        assets[1] = THOUSAND_6 / 2;
+        uint256 totalAssetsBefore = vault.totalAssets();
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        vm.startPrank(curator);
+        vault.allocate(targets, assets);
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+        assertEq(vault.totalAssets(), initTotalAssets + THOUSAND_6 - reservedAllocationCost, "Total assets");
+        assertEq(vault.totalAssets(), totalAssetsBefore, "total assets should be the same");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                         WITHDRAW WITH SLIPPAGE
+    //////////////////////////////////////////////////////////////*/
+
+    modifier afterDepositWithCostReservation() {
+        vm.startPrank(curator);
+        vault.setEntryCost(entryCostBps);
+        vm.stopPrank();
+        vm.startPrank(user);
+        asset.approve(address(vault), 2 * THOUSAND_6);
+        vault.deposit(2 * THOUSAND_6, user);
+        vm.stopPrank();
+        _;
+    }
+
+    modifier afterAllocate() {
+        uint256 totalAssetsBefore = vault.totalAssets();
+        uint256 reservedAllocationCostBefore = vault.reservedAllocationCost();
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVaultOne);
+        targets[1] = address(logVaultTwo);
+        uint256[] memory assets = new uint256[](2);
+        assets[0] = THOUSAND_6;
+        assets[1] = THOUSAND_6;
+        vm.startPrank(curator);
+        vault.allocate(targets, assets);
+        vm.stopPrank();
+        assertEq(vault.totalAssets(), totalAssetsBefore, "Total assets");
+        assertEq(vault.idleAssets(), THOUSAND_6 * 5, "Idle assets");
+        // assertEq(vault.getTargetVaultsIdleAssets(), THOUSAND_6 * 2, "Target vaults idle assets");
+        _;
+    }
+
+    modifier afterUtilizedFully() {
+        uint256 totalAssetsBefore = vault.totalAssets();
+        uint256 reservedAllocationCostBefore = vault.reservedAllocationCost();
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVaultOne);
+        targets[1] = address(logVaultTwo);
+        uint256[] memory assets = new uint256[](2);
+        assets[0] = THOUSAND_6;
+        assets[1] = THOUSAND_6;
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        vm.startPrank(curator);
+        vault.allocate(targets, assets);
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+        strategyOne.utilize(THOUSAND_6);
+        strategyTwo.utilize(THOUSAND_6);
+        uint256 sharePriceAfterUtilize = vault.convertToAssets(1e10);
+        assertEq(sharePriceAfterUtilize, sharePriceAfter, "Share price should be the same after utilize");
+        assertEq(vault.totalAssets(), totalAssetsBefore, "Total assets");
+        assertEq(vault.idleAssets(), THOUSAND_6 * 5, "Idle assets");
+        // assertEq(vault.getTargetVaultsIdleAssets(), 0, "Target vaults idle assets");
+        _;
+    }
+
+    modifier afterUtilizedPartially() {
+        uint256 totalAssetsBefore = vault.totalAssets();
+        uint256 reservedAllocationCostBefore = vault.reservedAllocationCost();
+        address[] memory targets = new address[](2);
+        targets[0] = address(logVaultOne);
+        targets[1] = address(logVaultTwo);
+        uint256[] memory assets = new uint256[](2);
+        assets[0] = THOUSAND_6;
+        assets[1] = THOUSAND_6;
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        vm.startPrank(curator);
+        vault.allocate(targets, assets);
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+        strategyOne.utilize(THOUSAND_6 / 2);
+        strategyTwo.utilize(THOUSAND_6 / 2);
+        uint256 sharePriceAfterUtilize = vault.convertToAssets(1e10);
+        assertEq(sharePriceAfterUtilize, sharePriceAfter, "Share price should be the same after utilize");
+        assertEq(vault.totalAssets(), totalAssetsBefore, "Total assets");
+        assertEq(vault.idleAssets(), THOUSAND_6 * 5, "Idle assets");
+        assertEq(vault.getTargetVaultsIdleAssets(), THOUSAND_6, "Target vaults idle assets");
+        _;
+    }
+
+    uint256 initIdle = THOUSAND_6 * 5;
+
+    function test_requestWithdrawWithSlippage_whenIdleEnough()
+        public
+        withCostableTargetVaults
+        afterDepositWithCostReservation
+        afterAllocate
+    {
+        uint256 totalAssetsBefore = vault.totalAssets();
+        uint256 amount = initIdle + THOUSAND_6;
+        uint256 previewedShares = vault.previewWithdraw(amount);
+        assertEq(previewedShares, amount, "Previewed assets should be amount");
+        uint256 userAssetsBefore = asset.balanceOf(user);
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        vm.startPrank(user);
+        bytes32 withdrawKey = vault.requestWithdraw(amount, user, user, previewedShares);
+        assertTrue(withdrawKey == bytes32(0), "Withdraw key should be 0");
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+
+        assertEq(vault.totalAssets(), totalAssetsBefore - amount, "Total assets should be decreased by amount");
+        assertEq(vault.idleAssets(), 0, "Idle assets should be 0");
         assertEq(
-            vault.previewRedeem(shares), THOUSAND_6 - THOUSAND_6 * 5 / 1005, "Redeem should return the correct amount"
+            vault.getTargetVaultsIdleAssets(),
+            logVaultTwo.idleAssets(),
+            "Target vaults idle assets should be logVaultTwo idle assets"
         );
+        assertEq(asset.balanceOf(user), userAssetsBefore + amount, "User assets should be increased by amount");
+        uint256 userShares = vault.balanceOf(user);
+        assertLt(vault.previewRedeem(userShares), THOUSAND_6, "User shares should be redeemed for less than amount");
+    }
+
+    function test_requestWithdrawWithSlippage_whenIdleEnough_withPartialUtilization()
+        public
+        withCostableTargetVaults
+        afterDepositWithCostReservation
+        afterUtilizedPartially
+    {
+        uint256 totalAssetsBefore = vault.totalAssets();
+        uint256 amount = initIdle + THOUSAND_6;
+        uint256 previewedShares = vault.previewWithdraw(amount);
+        assertEq(previewedShares, amount, "Previewed assets should be amount");
+        uint256 userAssetsBefore = asset.balanceOf(user);
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        vm.startPrank(user);
+        bytes32 withdrawKey = vault.requestWithdraw(amount, user, user, previewedShares);
+        assertTrue(withdrawKey == bytes32(0), "Withdraw key should be 0");
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+
+        assertEq(vault.totalAssets(), totalAssetsBefore - amount, "Total assets should be decreased by amount");
+        assertEq(vault.idleAssets(), 0, "Idle assets should be 0");
+        assertEq(vault.getTargetVaultsIdleAssets(), 0, "Target vaults idle assets should be 0");
+        assertEq(asset.balanceOf(user), userAssetsBefore + amount, "User assets should be increased by amount");
+        uint256 userShares = vault.balanceOf(user);
+        assertLt(vault.previewRedeem(userShares), THOUSAND_6, "User shares should be redeemed for less than amount");
+    }
+
+    function test_requestWithdrawWithSlippage_whenIdleNotEnough_withPartialUtilization()
+        public
+        withCostableTargetVaults
+        afterDepositWithCostReservation
+        afterUtilizedPartially
+    {
+        uint256 totalAssetsBefore = vault.totalAssets();
+        uint256 amount = initIdle + THOUSAND_6 * 3 / 2;
+        uint256 previewedShares = vault.previewWithdraw(amount);
+        uint256 userAssetsBefore = asset.balanceOf(user);
+        uint256 totalIdle = vault.getTotalIdleAssets();
+
+        uint256 logOneReservedCostBefore = strategyOne.reservedExecutionCost();
+        uint256 logTwoReservedCostBefore = strategyTwo.reservedExecutionCost();
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        vm.startPrank(user);
+        bytes32 withdrawKey = vault.requestWithdraw(amount, user, user, previewedShares);
+        assertTrue(withdrawKey != bytes32(0), "Withdraw key shouldn't be 0");
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+
+        uint256 logOneReservedCostAfter = strategyOne.reservedExecutionCost();
+        uint256 logTwoReservedCostAfter = strategyTwo.reservedExecutionCost();
+        uint256 exitCost =
+            logTwoReservedCostAfter + logOneReservedCostAfter - logOneReservedCostBefore - logTwoReservedCostBefore;
+
+        assertEq(
+            vault.totalAssets(),
+            totalAssetsBefore - amount - exitCost,
+            "Total assets should be decreased by amount and exit cost"
+        );
+        assertEq(vault.idleAssets(), 0, "Idle assets should be 0");
+        assertEq(vault.getTargetVaultsIdleAssets(), 0, "Target vaults idle assets should be 0");
+        assertEq(asset.balanceOf(user), userAssetsBefore + totalIdle, "User assets should be increased by totalIdle");
+        assertLt(totalIdle, amount, "Total idle should be less than amount");
+        uint256 userShares = vault.balanceOf(user);
+        assertLt(vault.previewRedeem(userShares), THOUSAND_6 / 2, "User shares should be redeemed for less than amount");
+
+        strategyOne.deutilize(THOUSAND_6 / 2);
+        strategyTwo.deutilize(THOUSAND_6 / 2);
+        uint256 sharePriceAfterDeutilize = vault.convertToAssets(1e10);
+        assertEq(sharePriceAfterDeutilize, sharePriceAfter, "Share price should be the same after deutilize");
+        vault.claim(withdrawKey);
+        uint256 sharePriceAfterClaim = vault.convertToAssets(1e10);
+        assertEq(sharePriceAfterClaim, sharePriceAfter, "Share price should be the same after claim");
+        assertEq(asset.balanceOf(user), userAssetsBefore + amount, "User assets should be increased by amount");
+    }
+
+    function test_requestWithdrawWithSlippage_whenIdleNotEnough_withFullyUtilization()
+        public
+        withCostableTargetVaults
+        afterDepositWithCostReservation
+        afterUtilizedFully
+    {
+        uint256 totalAssetsBefore = vault.totalAssets();
+        uint256 amount = initIdle + THOUSAND_6 * 3 / 2;
+        uint256 previewedShares = vault.previewWithdraw(amount);
+        uint256 userAssetsBefore = asset.balanceOf(user);
+        uint256 totalIdle = vault.getTotalIdleAssets();
+
+        uint256 logOneReservedCostBefore = strategyOne.reservedExecutionCost();
+        uint256 logTwoReservedCostBefore = strategyTwo.reservedExecutionCost();
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        vm.startPrank(user);
+        bytes32 withdrawKey = vault.requestWithdraw(amount, user, user, previewedShares);
+        assertTrue(withdrawKey != bytes32(0), "Withdraw key shouldn't be 0");
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+
+        uint256 logOneReservedCostAfter = strategyOne.reservedExecutionCost();
+        uint256 logTwoReservedCostAfter = strategyTwo.reservedExecutionCost();
+        uint256 exitCost =
+            logTwoReservedCostAfter + logOneReservedCostAfter - logOneReservedCostBefore - logTwoReservedCostBefore;
+
+        assertEq(
+            vault.totalAssets(),
+            totalAssetsBefore - amount - exitCost,
+            "Total assets should be decreased by amount and exit cost"
+        );
+        assertEq(vault.idleAssets(), 0, "Idle assets should be 0");
+        assertEq(vault.getTargetVaultsIdleAssets(), 0, "Target vaults idle assets should be 0");
+        assertEq(asset.balanceOf(user), userAssetsBefore + totalIdle, "User assets should be increased by totalIdle");
+        assertLt(totalIdle, amount, "Total idle should be less than amount");
+        uint256 userShares = vault.balanceOf(user);
+        assertLt(vault.previewRedeem(userShares), THOUSAND_6 / 2, "User shares should be redeemed for less than amount");
+
+        strategyOne.deutilize(THOUSAND_6);
+        strategyTwo.deutilize(THOUSAND_6);
+        uint256 sharePriceAfterDeutilize = vault.convertToAssets(1e10);
+        assertEq(sharePriceAfterDeutilize, sharePriceAfter, "Share price should be the same after deutilize");
+        vault.claim(withdrawKey);
+        uint256 sharePriceLast = vault.convertToAssets(1e10);
+        assertEq(sharePriceLast, sharePriceAfter, "Share price should be the same after claim");
+        assertEq(asset.balanceOf(user), userAssetsBefore + amount, "User assets should be increased by amount");
+    }
+
+    function test_requestRedeemWithSlippage_whenIdleEnough()
+        public
+        withCostableTargetVaults
+        afterDepositWithCostReservation
+        afterAllocate
+    {
+        uint256 totalAssetsBefore = vault.totalAssets();
+        uint256 amount = initIdle + THOUSAND_6;
+        uint256 previewedAssets = vault.previewRedeem(amount);
+        uint256 userAssetsBefore = asset.balanceOf(user);
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        vm.startPrank(user);
+        bytes32 withdrawKey = vault.requestRedeem(amount, user, user, previewedAssets);
+        assertTrue(withdrawKey == bytes32(0), "Withdraw key should be 0");
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+
+        assertEq(vault.totalAssets(), totalAssetsBefore - amount, "Total assets should be decreased by amount");
+        assertEq(vault.idleAssets(), 0, "Idle assets should be 0");
+        assertEq(
+            vault.getTargetVaultsIdleAssets(),
+            logVaultTwo.idleAssets(),
+            "Target vaults idle assets should be logVaultTwo idle assets"
+        );
+        assertEq(asset.balanceOf(user), userAssetsBefore + amount, "User assets should be increased by amount");
+        uint256 userShares = vault.balanceOf(user);
+        assertLt(vault.previewRedeem(userShares), THOUSAND_6, "User shares should be redeemed for less than amount");
+    }
+
+    function test_requestRedeemWithSlippage_whenIdleEnough_withPartialUtilization()
+        public
+        withCostableTargetVaults
+        afterDepositWithCostReservation
+        afterUtilizedPartially
+    {
+        uint256 totalAssetsBefore = vault.totalAssets();
+        uint256 amount = initIdle + THOUSAND_6;
+        uint256 previewedAssets = vault.previewRedeem(amount);
+        uint256 userAssetsBefore = asset.balanceOf(user);
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        vm.startPrank(user);
+        bytes32 withdrawKey = vault.requestRedeem(amount, user, user, previewedAssets);
+        assertTrue(withdrawKey == bytes32(0), "Withdraw key should be 0");
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+
+        assertEq(vault.totalAssets(), totalAssetsBefore - amount, "Total assets should be decreased by amount");
+        assertEq(vault.idleAssets(), 0, "Idle assets should be 0");
+        assertEq(vault.getTargetVaultsIdleAssets(), 0, "Target vaults idle assets should be 0");
+        assertEq(asset.balanceOf(user), userAssetsBefore + amount, "User assets should be increased by amount");
+        uint256 userShares = vault.balanceOf(user);
+        assertLt(vault.previewRedeem(userShares), THOUSAND_6, "User shares should be redeemed for less than amount");
+    }
+
+    function test_requestRedeemWithSlippage_whenIdleNotEnough_withPartialUtilization()
+        public
+        withCostableTargetVaults
+        afterDepositWithCostReservation
+        afterUtilizedPartially
+    {
+        uint256 totalAssetsBefore = vault.totalAssets();
+        uint256 amount = initIdle + THOUSAND_6 * 3 / 2;
+        uint256 previewedAssets = vault.previewRedeem(amount);
+        uint256 userAssetsBefore = asset.balanceOf(user);
+        uint256 totalIdle = vault.getTotalIdleAssets();
+
+        uint256 logOneReservedCostBefore = strategyOne.reservedExecutionCost();
+        uint256 logTwoReservedCostBefore = strategyTwo.reservedExecutionCost();
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        vm.startPrank(user);
+        bytes32 withdrawKey = vault.requestRedeem(amount, user, user, previewedAssets);
+        assertTrue(withdrawKey != bytes32(0), "Withdraw key shouldn't be 0");
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+
+        uint256 logOneReservedCostAfter = strategyOne.reservedExecutionCost();
+        uint256 logTwoReservedCostAfter = strategyTwo.reservedExecutionCost();
+        uint256 exitCost =
+            logTwoReservedCostAfter + logOneReservedCostAfter - logOneReservedCostBefore - logTwoReservedCostBefore;
+
+        assertEq(
+            vault.totalAssets(),
+            totalAssetsBefore - previewedAssets - exitCost,
+            "Total assets should be decreased by amount and exit cost"
+        );
+        assertEq(vault.idleAssets(), 0, "Idle assets should be 0");
+        assertEq(vault.getTargetVaultsIdleAssets(), 0, "Target vaults idle assets should be 0");
+        assertEq(asset.balanceOf(user), userAssetsBefore + totalIdle, "User assets should be increased by totalIdle");
+        assertLt(totalIdle, amount, "Total idle should be less than amount");
+        uint256 userShares = vault.balanceOf(user);
+        assertLt(vault.previewRedeem(userShares), THOUSAND_6 / 2, "User shares should be redeemed for less than amount");
+
+        strategyOne.deutilize(THOUSAND_6 / 2);
+        strategyTwo.deutilize(THOUSAND_6 / 2);
+        uint256 sharePriceAfterDeutilize = vault.convertToAssets(1e10);
+        assertEq(sharePriceAfterDeutilize, sharePriceAfter, "Share price should be the same after deutilize");
+        vault.claim(withdrawKey);
+        uint256 sharePriceAfterClaim = vault.convertToAssets(1e10);
+        assertEq(sharePriceAfterClaim, sharePriceAfter, "Share price should be the same after claim");
+        assertEq(
+            asset.balanceOf(user),
+            userAssetsBefore + previewedAssets,
+            "User assets should be increased by previewedAssets"
+        );
+    }
+
+    function test_requestRedeemWithSlippage_whenIdleNotEnough_withFullyUtilization()
+        public
+        withCostableTargetVaults
+        afterDepositWithCostReservation
+        afterUtilizedFully
+    {
+        uint256 totalAssetsBefore = vault.totalAssets();
+        uint256 amount = initIdle + THOUSAND_6 * 3 / 2;
+        uint256 previewedAssets = vault.previewRedeem(amount);
+        uint256 userAssetsBefore = asset.balanceOf(user);
+        uint256 totalIdle = vault.getTotalIdleAssets();
+
+        uint256 logOneReservedCostBefore = strategyOne.reservedExecutionCost();
+        uint256 logTwoReservedCostBefore = strategyTwo.reservedExecutionCost();
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+        vm.startPrank(user);
+        bytes32 withdrawKey = vault.requestRedeem(amount, user, user, previewedAssets);
+        assertTrue(withdrawKey != bytes32(0), "Withdraw key shouldn't be 0");
+        vm.stopPrank();
+        uint256 sharePriceAfter = vault.convertToAssets(1e10);
+        assertEq(sharePriceBefore, sharePriceAfter, "Share price should be the same");
+
+        uint256 logOneReservedCostAfter = strategyOne.reservedExecutionCost();
+        uint256 logTwoReservedCostAfter = strategyTwo.reservedExecutionCost();
+        uint256 exitCost =
+            logTwoReservedCostAfter + logOneReservedCostAfter - logOneReservedCostBefore - logTwoReservedCostBefore;
+
+        assertEq(
+            vault.totalAssets(),
+            totalAssetsBefore - previewedAssets - exitCost,
+            "Total assets should be decreased by amount and exit cost"
+        );
+        assertEq(vault.idleAssets(), 0, "Idle assets should be 0");
+        assertEq(vault.getTargetVaultsIdleAssets(), 0, "Target vaults idle assets should be 0");
+        assertEq(asset.balanceOf(user), userAssetsBefore + totalIdle, "User assets should be increased by totalIdle");
+        assertLt(totalIdle, amount, "Total idle should be less than amount");
+        uint256 userShares = vault.balanceOf(user);
+        assertLt(vault.previewRedeem(userShares), THOUSAND_6 / 2, "User shares should be redeemed for less than amount");
+
+        strategyOne.deutilize(THOUSAND_6);
+        strategyTwo.deutilize(THOUSAND_6);
+        uint256 sharePriceAfterDeutilize = vault.convertToAssets(1e10);
+        assertEq(sharePriceAfterDeutilize, sharePriceAfter, "Share price should be the same after deutilize");
+        vault.claim(withdrawKey);
+        uint256 sharePriceAfterClaim = vault.convertToAssets(1e10);
+        assertEq(sharePriceAfterClaim, sharePriceAfter, "Share price should be the same after claim");
+        assertEq(
+            asset.balanceOf(user),
+            userAssetsBefore + previewedAssets,
+            "User assets should be increased by previewedAssets"
+        );
+    }
+
+    function test_sharePriceConsistency_claimAllocations()
+        public
+        withCostableTargetVaults
+        afterDepositWithCostReservation
+        afterUtilizedFully
+    {
+        uint256 amount = initIdle + THOUSAND_6 * 3 / 2;
+
+        uint256 previewedAssets = vault.previewRedeem(amount);
+        vm.startPrank(user);
+        bytes32 withdrawKey = vault.requestRedeem(amount, user, user, previewedAssets);
+        assertTrue(withdrawKey != bytes32(0), "Withdraw key shouldn't be 0");
+        vm.stopPrank();
+
+        uint256 sharePriceBefore = vault.convertToAssets(1e10);
+
+        strategyOne.deutilize(THOUSAND_6);
+        strategyTwo.deutilize(THOUSAND_6);
+
+        uint256 sharePriceAfterDeutilize = vault.convertToAssets(1e10);
+        assertEq(sharePriceAfterDeutilize, sharePriceBefore, "Share price should be the same after deutilize");
+        (uint256 pending, uint256 claimable) = vault.allocationPendingAndClaimable();
+        assertEq(pending, 0, "Pending should be 0");
+        assertEq(claimable, 1497503495, "Claimable should be amount");
+        uint256 assetBalanceBefore = asset.balanceOf(address(vault));
+        vault.claimAllocations();
+        uint256 assetBalanceAfter = asset.balanceOf(address(vault));
+        assertEq(assetBalanceAfter, assetBalanceBefore + claimable, "Asset balance should be increased by claimable");
+        (pending, claimable) = vault.allocationPendingAndClaimable();
+        assertEq(pending, 0, "Pending should be 0");
+        assertEq(claimable, 0, "Claimable should be 0");
+        uint256 sharePriceAfterClaim = vault.convertToAssets(1e10);
+        assertEq(sharePriceAfterClaim, sharePriceAfterDeutilize, "Share price should be the same after claim");
     }
 }

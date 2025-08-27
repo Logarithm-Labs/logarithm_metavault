@@ -31,7 +31,7 @@ contract MockStrategy {
     function processAssetsToWithdraw() public {}
 
     function reserveExecutionCost(uint256 cost) public {
-        executionCost = cost;
+        executionCost += cost;
     }
 
     function reservedExecutionCost() public view returns (uint256) {
