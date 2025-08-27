@@ -203,6 +203,15 @@ library VaultAdapter {
         return assets.mulDiv(costBpsOrRate, denominator, Math.Rounding.Ceil);
     }
 
+    /// @dev Calculates the remaining shares after redeeming for idle assets.
+    function tryPreviewRemainingSharesAfterIdleAssets(address target, address holder) internal view returns (uint256) {
+        uint256 shares = shareBalanceOf(target, holder);
+        uint256 idleAssets = tryIdleAssets(target);
+        if (idleAssets == 0) return shares;
+        uint256 idleShares = tryPreviewShares(target, idleAssets);
+        return shares > idleShares ? shares - idleShares : 0;
+    }
+
     /// @dev Insertion sort for targets by exit cost
     /// @param targets Array of target vault addresses
     /// @param length The length of the array to sort

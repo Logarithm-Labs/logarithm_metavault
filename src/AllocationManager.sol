@@ -367,6 +367,7 @@ abstract contract AllocationManager {
         delete $.requestedAssetsByKey[target][key];
     }
 
+    /// @dev Calculates the exit cost against raw assets assuming targets have no idle assets.
     function _previewAllocationExitCostOnRaw(uint256 assets) internal view returns (uint256 cost) {
         if (assets == 0) return 0;
 
@@ -378,15 +379,16 @@ abstract contract AllocationManager {
 
         for (uint256 i; i < length && assets > 0;) {
             address target = targets[i];
-            uint256 targetShares = VaultAdapter.shareBalanceOf(target, address(this));
-
-            if (targetShares > 0) {
-                uint256 rawAssets = VaultAdapter.tryPreviewAssets(target, targetShares);
+            uint256 remainingShares = VaultAdapter.tryPreviewRemainingSharesAfterIdleAssets(target, address(this));
+            if (remainingShares > 0) {
+                uint256 totalAssets = VaultAdapter.convertToAssets(target, remainingShares);
+                uint256 exitCostOnTotal = VaultAdapter.tryExitCostOnTotal(target, totalAssets);
+                uint256 rawAssets = totalAssets - exitCostOnTotal;
                 uint256 rawAssetsToWithdraw = Math.min(rawAssets, assets);
-                uint256 exitCost = VaultAdapter.tryExitCostOnRaw(target, rawAssetsToWithdraw);
+                uint256 exitCostOnRaw = VaultAdapter.tryExitCostOnRaw(target, rawAssetsToWithdraw);
 
                 unchecked {
-                    cost += exitCost;
+                    cost += exitCostOnRaw;
                     assets -= rawAssetsToWithdraw;
                 }
             }
@@ -399,6 +401,7 @@ abstract contract AllocationManager {
         return cost;
     }
 
+    /// @dev Calculates the exit cost against total assets assuming targets have idle assets.
     function _previewAllocationExitCostOnTotal(uint256 assets) internal view returns (uint256 cost) {
         if (assets == 0) return 0;
 
@@ -410,14 +413,13 @@ abstract contract AllocationManager {
 
         for (uint256 i; i < length && assets > 0;) {
             address target = targets[i];
-            uint256 targetShares = VaultAdapter.shareBalanceOf(target, address(this));
-
-            if (targetShares > 0) {
-                uint256 totalAssets = VaultAdapter.convertToAssets(target, targetShares);
+            uint256 remainingShares = VaultAdapter.tryPreviewRemainingSharesAfterIdleAssets(target, address(this));
+            if (remainingShares > 0) {
+                uint256 totalAssets = VaultAdapter.convertToAssets(target, remainingShares);
                 uint256 totalAssetsToWithdraw = Math.min(totalAssets, assets);
-                uint256 exitCost = VaultAdapter.tryExitCostOnTotal(target, totalAssetsToWithdraw);
+                uint256 exitCostOnTotal = VaultAdapter.tryExitCostOnTotal(target, totalAssetsToWithdraw);
                 unchecked {
-                    cost += exitCost;
+                    cost += exitCostOnTotal;
                     assets -= totalAssetsToWithdraw;
                 }
             }
