@@ -71,12 +71,8 @@ library VaultAdapter {
 
     /// @notice Claims assets for a given withdraw key on a target vault.
     /// @dev Reverts if async interface is not implemented. Callers should check tryIsClaimable first.
-    function tryClaim(address target, bytes32 withdrawKey) internal returns (uint256) {
-        try ILogarithmVault(target).claim(withdrawKey) returns (uint256 assets) {
-            return assets;
-        } catch {
-            return 0;
-        }
+    function claim(address target, bytes32 withdrawKey) internal returns (uint256) {
+        return ILogarithmVault(target).claim(withdrawKey);
     }
 
     /// @notice Preview assets for a given amount of shares on a target vault.

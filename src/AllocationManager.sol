@@ -240,14 +240,12 @@ abstract contract AllocationManager {
                 bytes32 key = keys[j];
                 bool isClaimable = VaultAdapter.tryIsClaimable(target, key);
                 if (isClaimable) {
-                    // claim to this contract
-                    VaultAdapter.tryClaim(target, key);
+                    VaultAdapter.claim(target, key);
                     _removeWithdrawKey(target, key);
                 } else if (VaultAdapter.tryIsClaimed(target, key)) {
+                    // Check whether the request was claimed externally (defensive)
                     _removeWithdrawKey(target, key);
                 } else {
-                    // Check whether the request was claimed externally (defensive)
-                    // If the target doesn't expose state, we keep the key until claimable
                     allDone = false;
                 }
                 unchecked {
