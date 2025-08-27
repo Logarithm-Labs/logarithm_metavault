@@ -2488,4 +2488,38 @@ contract MetaVaultTest is Test {
         uint256 sharePriceAfterClaim = vault.convertToAssets(1e10);
         assertEq(sharePriceAfterClaim, sharePriceAfterDeutilize, "Share price should be the same after claim");
     }
+
+    function test_requestWithdraw_slippage()
+        public
+        withCostableTargetVaults
+        afterDepositWithCostReservation
+        afterUtilizedFully
+    {
+        uint256 amount = initIdle + THOUSAND_6 * 3 / 2;
+        uint256 previewedShares = vault.previewWithdraw(amount);
+        uint256 maxShareToBurn = previewedShares - 1;
+        vm.startPrank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(MetaVault.MV__ExceededMaxSharesToBurn.selector, maxShareToBurn, previewedShares)
+        );
+        vault.requestWithdraw(amount, user, user, maxShareToBurn);
+    }
+
+    function test_requestRedeem_slippage()
+        public
+        withCostableTargetVaults
+        afterDepositWithCostReservation
+        afterUtilizedFully
+    {
+        uint256 amount = initIdle + THOUSAND_6 * 3 / 2;
+        uint256 previewedAssets = vault.previewRedeem(amount);
+        uint256 minAssetsToReceive = previewedAssets + 1;
+        vm.startPrank(user);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MetaVault.MV__ExceededMinAssetsToReceive.selector, minAssetsToReceive, previewedAssets
+            )
+        );
+        vault.requestWithdraw(amount, user, user, minAssetsToReceive);
+    }
 }
