@@ -51,14 +51,19 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
     ///
     /// @param upgradeable If true, the proxy will be an instance of the BeaconProxy. If false, a minimal proxy
     /// will be deployed
+    /// @param underlyingAsset The address of the underlying asset
+    /// @param curator The address of the curator
     /// @param name Vault name
     /// @param symbol Vault symbol
     ///
     /// @return The address of the new proxy
-    function createVault(bool upgradeable, address underlyingAsset, string calldata name, string calldata symbol)
-        external
-        returns (address)
-    {
+    function createVault(
+        bool upgradeable,
+        address underlyingAsset,
+        address curator,
+        string calldata name,
+        string calldata symbol
+    ) external returns (address) {
         address _implementation = implementation();
 
         address proxy;
@@ -68,13 +73,13 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
                 new BeaconProxy(
                     address(this),
                     abi.encodeWithSelector(
-                        IMetaVault.initialize.selector, vaultRegistry, msg.sender, underlyingAsset, name, symbol
+                        IMetaVault.initialize.selector, vaultRegistry, curator, underlyingAsset, name, symbol
                     )
                 )
             );
         } else {
             proxy = _implementation.clone();
-            IMetaVault(proxy).initialize(vaultRegistry, msg.sender, underlyingAsset, name, symbol);
+            IMetaVault(proxy).initialize(vaultRegistry, curator, underlyingAsset, name, symbol);
         }
 
         proxyLookup[proxy] = ProxyConfig({upgradeable: upgradeable, implementation: _implementation});

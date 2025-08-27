@@ -65,7 +65,7 @@ contract MetaVaultTest is Test {
 
         VaultFactory factory = new VaultFactory(address(registry), address(new MetaVault()), owner);
         vm.startPrank(curator);
-        vault = MetaVault(factory.createVault(false, address(asset), "vault", "vault"));
+        vault = MetaVault(factory.createVault(false, address(asset), curator, "vault", "vault"));
 
         asset.mint(user, 10 * THOUSAND_6);
 

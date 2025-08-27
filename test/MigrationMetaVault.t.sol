@@ -78,7 +78,7 @@ contract MigrationMetaVaultTest is Test {
 
         VaultFactory factory = new VaultFactory(address(registry), address(new MigrationMetaVault()), owner);
         vm.startPrank(curator);
-        vault = MigrationMetaVault(factory.createVault(false, address(asset), "vault", "vault"));
+        vault = MigrationMetaVault(factory.createVault(false, address(asset), curator, "vault", "vault"));
 
         // Mint assets for the user (following the same pattern as existing tests)
         asset.mint(user, 10 * THOUSAND_6);

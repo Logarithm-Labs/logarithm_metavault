@@ -7,6 +7,7 @@ import {MetaVault} from "../src/MetaVault.sol";
 import {BaseAddress, ArbitrumAddress} from "./utils/Address.sol";
 
 address constant OWNER = 0x2aDF216832582B2826C25914A4a7b565AEBb180D;
+address constant CURATOR = 0xF600833BDB1150442B4d355d52653B3896140827;
 
 contract DeployVaultFactoryBase is Script {
     function run() public {
@@ -14,7 +15,7 @@ contract DeployVaultFactoryBase is Script {
         vm.createSelectFork("base");
         vm.startBroadcast(privateKey);
         VaultFactory factory = new VaultFactory(BaseAddress.VAULT_REGISTRY, address(new MetaVault()), OWNER);
-        factory.createVault(true, BaseAddress.USDC, "Tal's Vault", "TV");
+        factory.createVault(true, BaseAddress.USDC, CURATOR, "ACP MetaVault", "AMV");
         vm.stopBroadcast();
     }
 }
@@ -36,7 +37,7 @@ contract DeployVaultFactoryArbitrum is Script {
         vm.createSelectFork("arbitrum_one");
         vm.startBroadcast(privateKey);
         VaultFactory factory = new VaultFactory(ArbitrumAddress.VAULT_REGISTRY, address(new MetaVault()), OWNER);
-        factory.createVault(true, ArbitrumAddress.USDC, "Tal Vault", "TV");
+        factory.createVault(true, ArbitrumAddress.USDC, CURATOR, "Tal Vault", "TV");
         vm.stopBroadcast();
     }
 }

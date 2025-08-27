@@ -10,6 +10,7 @@ import {MetaVault} from "src/MetaVault.sol";
 contract VaultFactoryTest is Test {
     VaultFactory public factory;
     address vaultImpl;
+    address curator = makeAddr("curator");
 
     function setUp() public {
         vaultImpl = address(new MetaVault());
@@ -21,7 +22,7 @@ contract VaultFactoryTest is Test {
     }
 
     function test_createVault_noneUpgradable() public {
-        address proxy = factory.createVault(false, address(0), "Test Vault", "TV");
+        address proxy = factory.createVault(false, address(0), curator, "Test Vault", "TV");
         string memory name = IERC20(proxy).name();
         string memory symbol = IERC20(proxy).symbol();
         assertEq(name, "Test Vault");
@@ -29,7 +30,7 @@ contract VaultFactoryTest is Test {
     }
 
     function test_createVault_upgradable() public {
-        address proxy = factory.createVault(true, address(0), "Test Vault", "TV");
+        address proxy = factory.createVault(true, address(0), curator, "Test Vault", "TV");
         string memory name = IERC20(proxy).name();
         string memory symbol = IERC20(proxy).symbol();
         assertEq(name, "Test Vault");
@@ -37,9 +38,9 @@ contract VaultFactoryTest is Test {
     }
 
     function test_createVault_multiple() public {
-        address proxyOne = factory.createVault(false, address(0), "Test Vault 1", "TV 1");
-        address proxyTwo = factory.createVault(true, address(0), "Test Vault 2", "TV 2");
-        address proxyThree = factory.createVault(false, address(0), "Test Vault 3", "TV 3");
+        address proxyOne = factory.createVault(false, address(0), curator, "Test Vault 1", "TV 1");
+        address proxyTwo = factory.createVault(true, address(0), curator, "Test Vault 2", "TV 2");
+        address proxyThree = factory.createVault(false, address(0), curator, "Test Vault 3", "TV 3");
         uint256 len = factory.getProxyListLength();
         assertEq(len, 3);
         assertFalse(factory.isProxy(address(this)));
