@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {Script} from "forge-std/Script.sol";
 import {VaultFactory} from "../src/VaultFactory.sol";
 import {MetaVault} from "../src/MetaVault.sol";
+import {MigrationMetaVault} from "../src/MigrationMetaVault.sol";
 import {BaseAddress, ArbitrumAddress} from "./utils/Address.sol";
 
 address constant OWNER = 0x2aDF216832582B2826C25914A4a7b565AEBb180D;
@@ -36,19 +37,20 @@ contract DeployVaultFactoryArbitrum is Script {
         uint256 privateKey = vm.envUint("PRIVATE_KEY");
         vm.createSelectFork("arbitrum_one");
         vm.startBroadcast(privateKey);
-        VaultFactory factory = new VaultFactory(ArbitrumAddress.VAULT_REGISTRY, address(new MetaVault()), OWNER);
+        VaultFactory factory =
+            new VaultFactory(ArbitrumAddress.VAULT_REGISTRY, address(new MigrationMetaVault()), OWNER);
         factory.createVault(true, ArbitrumAddress.USDC, CURATOR, "Tal Vault", "TV");
         vm.stopBroadcast();
     }
 }
 
-contract UpgradeMetaVaultArbitrum is Script {
+contract UpgradeMigrationMetaVaultArbitrum is Script {
     function run() public {
         uint256 privateKey = vm.envUint("PRIVATE_KEY");
         vm.createSelectFork("arbitrum_one");
         vm.startBroadcast(privateKey);
         VaultFactory factory = VaultFactory(ArbitrumAddress.VAULT_FACTORY);
-        factory.upgradeTo(address(new MetaVault()));
+        factory.upgradeTo(address(new MigrationMetaVault()));
         vm.stopBroadcast();
     }
 }

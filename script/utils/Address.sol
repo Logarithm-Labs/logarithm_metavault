@@ -10,7 +10,7 @@ library BaseAddress {
 
 library ArbitrumAddress {
     address public constant VAULT_REGISTRY = 0xA536E87eB6Dd5b92D8c82Ff324dEBCEEf394587b;
-    address public constant VAULT_FACTORY = address(0);
+    address public constant VAULT_FACTORY = 0xb85d96d68a6f5EA5558df418FBE1CF8C316C1eEb;
     address public constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
-    address public constant META_VAULT = address(0);
+    address public constant MIGRATION_META_VAULT = 0x0478D83913c1CFA47c7bFA3228dc8552AE1634E9;
 }
