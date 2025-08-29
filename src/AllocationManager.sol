@@ -21,7 +21,6 @@ abstract contract AllocationManager {
     //////////////////////////////////////////////////////////////*/
 
     error AM__InvalidInputLength();
-    error AM__InsufficientReservedAllocationCost();
 
     /*//////////////////////////////////////////////////////////////
                                EVENTS
@@ -30,6 +29,8 @@ abstract contract AllocationManager {
     event Allocated(address indexed target, uint256 assets, uint256 shares, uint256 allocationCost);
     event AllocationWithdrawn(address indexed target, address indexed receiver, uint256 assets, bytes32 withdrawKey);
     event AllocationRedeemed(address indexed target, address indexed receiver, uint256 shares, bytes32 withdrawKey);
+    event UtilizationCostNotEnough(address indexed target, uint256 required, uint256 available);
+    event UtilizationCostCharged(address indexed target, uint256 charged);
 
     /*//////////////////////////////////////////////////////////////
                                 STORAGE
@@ -73,7 +74,7 @@ abstract contract AllocationManager {
         _addAllocatedTarget(target);
         uint256 assetsAfter = VaultAdapter.convertToAssets(target, shares);
         uint256 allocationCost = assets > assetsAfter ? (assets - assetsAfter) : 0;
-        _depleteAllocationCost(allocationCost);
+        _depleteAllocationCost(target, allocationCost);
 
         emit Allocated(target, assets, shares, allocationCost);
     }
@@ -82,13 +83,16 @@ abstract contract AllocationManager {
         _getAllocationStorage().reservedAllocationCost += amount;
     }
 
-    function _depleteAllocationCost(uint256 amount) internal {
-        if (amount == 0) return;
+    function _depleteAllocationCost(address target, uint256 cost) internal {
+        if (cost == 0) return;
         uint256 currentReserved = _getAllocationStorage().reservedAllocationCost;
-        if (amount > currentReserved) {
-            revert AM__InsufficientReservedAllocationCost();
+        if (cost > currentReserved) {
+            _getAllocationStorage().reservedAllocationCost = 0;
+            emit UtilizationCostNotEnough(target, cost, currentReserved);
+        } else {
+            _getAllocationStorage().reservedAllocationCost = currentReserved - cost;
+            emit UtilizationCostCharged(target, cost);
         }
-        _getAllocationStorage().reservedAllocationCost = currentReserved - amount;
     }
 
     function _allocateBatch(address[] memory targets, uint256[] memory assets)

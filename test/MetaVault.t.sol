@@ -12,6 +12,7 @@ import {MetaVault} from "src/MetaVault.sol";
 import {VaultFactory} from "src/VaultFactory.sol";
 import {VaultAdapter} from "src/library/VaultAdapter.sol";
 import {DeployHelper} from "script/utils/DeployHelper.sol";
+import {AllocationManager} from "src/AllocationManager.sol";
 
 contract MetaVaultTest is Test {
     uint256 constant THOUSAND_6 = 1_000_000_000;
@@ -2023,8 +2024,11 @@ contract MetaVaultTest is Test {
         assets[0] = THOUSAND_6 / 2;
         assets[1] = THOUSAND_6;
         vm.startPrank(curator);
-        vm.expectRevert(AllocationManager.AM__InsufficientReservedAllocationCost.selector);
+        vm.expectEmit(true, true, false, false);
+        emit AllocationManager.UtilizationCostNotEnough(address(logVaultTwo), 999001, 499750);
         vault.allocate(targets, assets);
+        vm.stopPrank();
+        assertEq(vault.reservedAllocationCost(), 0, "Reserved allocation cost should be 0");
     }
 
     function test_totalAssets_afterAllocation() public withEntryCost withCostableTargetVaults {
