@@ -2,7 +2,6 @@
 pragma solidity ^0.8.0;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ILogarithmVault} from "../interfaces/ILogarithmVault.sol";
 
 library VaultAdapter {
@@ -12,7 +11,7 @@ library VaultAdapter {
 
     /// @notice Deposit assets into a target vault.
     function deposit(address target, uint256 assets, address receiver) internal returns (uint256) {
-        return IERC4626(target).deposit(assets, receiver);
+        return ILogarithmVault(target).deposit(assets, receiver);
     }
 
     /// @notice Request to withdraw assets from a target vault. Falls back to synchronous withdraw if async is unsupported.
@@ -26,7 +25,7 @@ library VaultAdapter {
             return key;
         } catch {
             // Fallback to standard ERC4626 withdraw
-            IERC4626(target).withdraw(assets, receiver, owner);
+            ILogarithmVault(target).withdraw(assets, receiver, owner);
             return bytes32(0);
         }
     }
@@ -42,7 +41,7 @@ library VaultAdapter {
             return key;
         } catch {
             // Fallback to standard ERC4626 redeem
-            IERC4626(target).redeem(shares, receiver, owner);
+            ILogarithmVault(target).redeem(shares, receiver, owner);
             return bytes32(0);
         }
     }
@@ -60,10 +59,8 @@ library VaultAdapter {
     /// @notice Returns whether a given withdraw key is claimed on a target vault.
     /// @dev Returns false if async interface is not implemented.
     function tryIsClaimed(address target, bytes32 withdrawKey) internal view returns (bool) {
-        try ILogarithmVault(target).withdrawRequests(withdrawKey) returns (
-            ILogarithmVault.WithdrawRequest memory request
-        ) {
-            return request.isClaimed;
+        try ILogarithmVault(target).isClaimed(withdrawKey) returns (bool isClaimed) {
+            return isClaimed;
         } catch {
             return false;
         }
@@ -78,41 +75,41 @@ library VaultAdapter {
     /// @notice Preview assets for a given amount of shares on a target vault.
     /// @dev Tries previewRedeem first; falls back to convertToAssets.
     function tryPreviewAssets(address target, uint256 shares) internal view returns (uint256) {
-        try IERC4626(target).previewRedeem(shares) returns (uint256 previewAssets) {
+        try ILogarithmVault(target).previewRedeem(shares) returns (uint256 previewAssets) {
             return previewAssets;
         } catch {
-            return IERC4626(target).convertToAssets(shares);
+            return ILogarithmVault(target).convertToAssets(shares);
         }
     }
 
     /// @notice Convert assets to shares on a target vault.
     function convertToShares(address target, uint256 assets) internal view returns (uint256) {
-        return IERC4626(target).convertToShares(assets);
+        return ILogarithmVault(target).convertToShares(assets);
     }
 
     /// @notice Preview shares for a given amount of assets on a target vault.
     /// @dev Tries previewAssets first; falls back to convertToShares.
     function tryPreviewShares(address target, uint256 assets) internal view returns (uint256) {
-        try IERC4626(target).previewWithdraw(assets) returns (uint256 previewShares) {
+        try ILogarithmVault(target).previewWithdraw(assets) returns (uint256 previewShares) {
             return previewShares;
         } catch {
-            return IERC4626(target).convertToShares(assets);
+            return ILogarithmVault(target).convertToShares(assets);
         }
     }
 
     /// @notice Convert shares to assets on a target vault.
     function convertToAssets(address target, uint256 shares) internal view returns (uint256) {
-        return IERC4626(target).convertToAssets(shares);
+        return ILogarithmVault(target).convertToAssets(shares);
     }
 
     /// @notice Returns the current share balance held by holder for the target vault.
     function shareBalanceOf(address target, address holder) internal view returns (uint256) {
-        return IERC4626(target).balanceOf(holder);
+        return ILogarithmVault(target).balanceOf(holder);
     }
 
     /// @notice Returns the asset token address for the target vault.
     function asset(address target) internal view returns (address) {
-        return IERC4626(target).asset();
+        return ILogarithmVault(target).asset();
     }
 
     function tryMaxRequestWithdraw(address target, address holder) internal view returns (uint256) {
@@ -132,11 +129,11 @@ library VaultAdapter {
     }
 
     function maxWithdraw(address target, address holder) internal view returns (uint256) {
-        return IERC4626(target).maxWithdraw(holder);
+        return ILogarithmVault(target).maxWithdraw(holder);
     }
 
     function maxRedeem(address target, address holder) internal view returns (uint256) {
-        return IERC4626(target).maxRedeem(holder);
+        return ILogarithmVault(target).maxRedeem(holder);
     }
 
     /// @notice Returns the idle assets available in a target vault.
@@ -185,14 +182,14 @@ library VaultAdapter {
     }
 
     /// @dev Calculates the cost that should be added to an amount `assets` that does not include cost.
-    /// Used in {IERC4626-mint} and {IERC4626-withdraw} operations.
+    /// Used in {ILogarithmVault-mint} and {ILogarithmVault-withdraw} operations.
     function costOnRaw(uint256 assets, uint256 costBpsOrRate) internal pure returns (uint256) {
         uint256 denominator = costBpsOrRate > _BASIS_POINT_SCALE ? 1 ether : _BASIS_POINT_SCALE;
         return assets.mulDiv(costBpsOrRate, denominator, Math.Rounding.Ceil);
     }
 
     /// @dev Calculates the cost part of an amount `assets` that already includes cost.
-    /// Used in {IERC4626-deposit} and {IERC4626-redeem} operations.
+    /// Used in {ILogarithmVault-deposit} and {ILogarithmVault-redeem} operations.
     function costOnTotal(uint256 assets, uint256 costBpsOrRate) internal pure returns (uint256) {
         uint256 denominator =
             costBpsOrRate > _BASIS_POINT_SCALE ? costBpsOrRate + 1 ether : costBpsOrRate + _BASIS_POINT_SCALE;
