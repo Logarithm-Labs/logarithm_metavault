@@ -15,6 +15,7 @@ abstract contract AllocationManager {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using SafeERC20 for IERC20;
+    using Math for uint256;
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -28,7 +29,7 @@ abstract contract AllocationManager {
 
     event Allocated(address indexed target, uint256 assets, uint256 shares, uint256 allocationCost);
     event AllocationWithdrawn(address indexed target, address indexed receiver, uint256 assets, bytes32 withdrawKey);
-    event AllocationRedeemed(address indexed target, address indexed receiver, uint256 shares, bytes32 withdrawKey);
+    event AllocationRedeemed(address indexed target, uint256 shares, uint256 assets, bytes32 withdrawKey);
     event UtilizationCostNotEnough(address indexed target, uint256 required, uint256 available);
     event UtilizationCostCharged(address indexed target, uint256 charged);
 
@@ -118,25 +119,36 @@ abstract contract AllocationManager {
 
     function _withdrawAllocation(address target, uint256 assets, address receiver) internal virtual {
         if (assets == 0) return;
-        uint256 beforeBal = IERC20(_allocationAsset()).balanceOf(receiver);
+        address _asset = _allocationAsset();
+        uint256 beforeBal = IERC20(_asset).balanceOf(receiver);
         bytes32 key = VaultAdapter.tryRequestWithdraw(target, assets, receiver, address(this));
-        uint256 afterBal = IERC20(_allocationAsset()).balanceOf(receiver);
+        uint256 afterBal = IERC20(_asset).balanceOf(receiver);
         uint256 immediate = afterBal > beforeBal ? (afterBal - beforeBal) : 0;
         uint256 pending = assets > immediate ? (assets - immediate) : 0;
         _addWithdrawKey(target, key, pending);
+        _maybePruneAllocated(target);
         emit AllocationWithdrawn(target, receiver, assets, key);
     }
 
-    function _redeemAllocation(address target, uint256 shares, address receiver) internal virtual {
-        if (shares == 0) return;
+    function _redeemAllocation(address target, uint256 shares, address receiver)
+        internal
+        virtual
+        returns (uint256 immediate, uint256 pending)
+    {
+        if (shares == 0) return (immediate, pending);
         uint256 previewAssets = VaultAdapter.tryPreviewAssets(target, shares);
-        uint256 beforeBal = IERC20(_allocationAsset()).balanceOf(receiver);
+        address _asset = _allocationAsset();
+        uint256 beforeBal = IERC20(_asset).balanceOf(receiver);
         bytes32 key = VaultAdapter.tryRequestRedeem(target, shares, receiver, address(this));
-        uint256 afterBal = IERC20(_allocationAsset()).balanceOf(receiver);
-        uint256 immediate = afterBal > beforeBal ? (afterBal - beforeBal) : 0;
-        uint256 pending = previewAssets > immediate ? (previewAssets - immediate) : 0;
-        _addWithdrawKey(target, key, pending);
-        emit AllocationRedeemed(target, receiver, shares, key);
+        uint256 afterBal = IERC20(_asset).balanceOf(receiver);
+        immediate = afterBal > beforeBal ? (afterBal - beforeBal) : 0;
+        if (key != bytes32(0)) {
+            pending = previewAssets > immediate ? (previewAssets - immediate) : 0;
+            _addWithdrawKey(target, key, pending);
+        }
+        _maybePruneAllocated(target);
+        emit AllocationRedeemed(target, shares, previewAssets, key);
+        return (immediate, pending);
     }
 
     function _withdrawAllocationBatch(address[] memory targets, uint256[] memory assets, address receiver)
@@ -156,15 +168,19 @@ abstract contract AllocationManager {
     function _redeemAllocationBatch(address[] memory targets, uint256[] memory shares, address receiver)
         internal
         virtual
+        returns (uint256 totalImmediate, uint256 totalPending)
     {
         uint256 len = targets.length;
         if (shares.length != len) revert AM__InvalidInputLength();
         for (uint256 i; i < len;) {
-            _redeemAllocation(targets[i], shares[i], receiver);
+            (uint256 immediate, uint256 pending) = _redeemAllocation(targets[i], shares[i], receiver);
             unchecked {
+                totalImmediate += immediate;
+                totalPending += pending;
                 ++i;
             }
         }
+        return (totalImmediate, totalPending);
     }
 
     /// @dev Withdraw from target vault idle assets
@@ -180,7 +196,7 @@ abstract contract AllocationManager {
             uint256 targetIdleAssets = VaultAdapter.tryIdleAssets(target);
             if (targetIdleAssets > 0) {
                 uint256 targetShares = VaultAdapter.shareBalanceOf(target, address(this));
-                uint256 targetAssets = VaultAdapter.tryPreviewAssets(target, targetShares);
+                uint256 targetAssets = VaultAdapter.convertToAssets(target, targetShares);
                 uint256 availableAssets = Math.min(targetAssets, targetIdleAssets);
                 uint256 assetsToWithdrawFromTarget = Math.min(availableAssets, assetsToWithdraw);
                 if (assetsToWithdrawFromTarget > 0) {
@@ -198,8 +214,11 @@ abstract contract AllocationManager {
     }
 
     /// @dev Withdraw from allocations in the ascending order of exit cost
-    function _withdrawFromAllocations(uint256 assetsToWithdraw) internal {
-        if (assetsToWithdraw == 0) return;
+    function _withdrawFromAllocations(uint256 assetsToWithdraw)
+        internal
+        returns (uint256 totalImmediate, uint256 totalPending)
+    {
+        if (assetsToWithdraw == 0) return (totalImmediate, totalPending);
 
         uint256 remainingAssets = assetsToWithdraw;
 
@@ -216,15 +235,23 @@ abstract contract AllocationManager {
                 // Calculate how much we can withdraw from this target's shares
                 uint256 targetAssets = VaultAdapter.tryPreviewAssets(target, targetShares);
                 uint256 assetsToRequest = Math.min(remainingAssets, targetAssets);
-                _withdrawAllocation(target, assetsToRequest, address(this));
+                uint256 sharesToRequest = assetsToRequest < targetAssets
+                    ? targetShares.mulDiv(assetsToRequest, targetAssets, Math.Rounding.Ceil)
+                    : targetShares;
+                (uint256 immediate, uint256 pending) = _redeemAllocation(target, sharesToRequest, address(this));
                 unchecked {
                     remainingAssets -= assetsToRequest;
+                    totalImmediate += immediate;
+                    totalPending += pending;
                 }
+            } else {
+                _pruneAllocated(target);
             }
             unchecked {
                 i++;
             }
         }
+        return (totalImmediate, totalPending);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -347,12 +374,16 @@ abstract contract AllocationManager {
 
     function _maybePruneAllocated(address target) internal {
         if (VaultAdapter.shareBalanceOf(target, address(this)) == 0) {
-            _getAllocationStorage().allocatedTargets.remove(target);
+            _pruneAllocated(target);
         }
     }
 
+    function _pruneAllocated(address target) internal {
+        _getAllocationStorage().allocatedTargets.remove(target);
+    }
+
     function _addWithdrawKey(address target, bytes32 key, uint256 pending) internal {
-        if (key != bytes32(0)) {
+        if (key != bytes32(0) && pending > 0) {
             AllocationStorage storage $ = _getAllocationStorage();
             $.claimableTargets.add(target);
             $.withdrawKeysByTarget[target].add(key);
@@ -360,7 +391,6 @@ abstract contract AllocationManager {
                 $.requestedAssetsByKey[target][key] = pending;
             }
         }
-        _maybePruneAllocated(target);
     }
 
     function _removeWithdrawKey(address target, bytes32 key) internal {

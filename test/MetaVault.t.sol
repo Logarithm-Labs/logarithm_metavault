@@ -117,12 +117,14 @@ contract MetaVaultTest is Test {
         vm.startPrank(0x2aDF216832582B2826C25914A4a7b565AEBb180D);
         prodFactory.upgradeTo(address(newMetaVault));
         MetaVault prodMetaVault = MetaVault(0x52c88801b8B9159620a0d689f4cE8e9f723Ea995);
+        uint256 sharesToRedeem = prodMetaVault.balanceOf(tal);
+        uint256 previewedAssets = prodMetaVault.previewRedeem(sharesToRedeem);
+        console.log("previewedAssets", previewedAssets);
         vm.startPrank(tal);
-        prodMetaVault.requestRedeem(250000000, tal, tal, 0);
+        prodMetaVault.requestRedeem(sharesToRedeem, tal, tal, 0);
         vm.stopPrank();
         uint256 usdcBalAfter = usdc.balanceOf(tal);
-        console.log("balance delta", usdcBalAfter - usdcBalBefore);
-        // assertEq(usdcBalAfter - usdcBalBefore, 250000000, "usdc balance should be increased");
+        assertEq(usdcBalAfter - usdcBalBefore, 250245447, "usdc balance should be increased");
     }
 
     function test_prod_nonstandard_maxWithdraw() public {
@@ -860,8 +862,8 @@ contract MetaVaultTest is Test {
     function test_maxRedeem_floorRounding() public afterAllocated afterFullyUtilized {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         // Add small amount of idle assets to test rounding
@@ -882,8 +884,8 @@ contract MetaVaultTest is Test {
     function test_withdrawFromTargetIdleAssets_sufficientIdle() public afterAllocated assertPendingWithdrawalsZero {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -909,8 +911,8 @@ contract MetaVaultTest is Test {
     {
         // Set different exit costs - logVaultOne has lower exit cost
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 50); // Lower exit cost
-        logVaultTwo.setEntryAndExitCost(0, 500); // Higher exit cost
+        logVaultOne.setEntryAndExitCost(0, 0.0005 ether); // Lower exit cost
+        logVaultTwo.setEntryAndExitCost(0, 0.005 ether); // Higher exit cost
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -941,8 +943,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         // Add limited idle assets to target vaults
@@ -973,8 +975,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1005,8 +1007,8 @@ contract MetaVaultTest is Test {
     {
         // Set different exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 300); // Higher exit cost
-        logVaultTwo.setEntryAndExitCost(0, 100); // Lower exit cost
+        logVaultOne.setEntryAndExitCost(0, 0.003 ether); // Higher exit cost
+        logVaultTwo.setEntryAndExitCost(0, 0.001 ether); // Lower exit cost
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1037,8 +1039,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 150);
-        logVaultTwo.setEntryAndExitCost(0, 75);
+        logVaultOne.setEntryAndExitCost(0, 0.0015 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.00075 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1047,7 +1049,8 @@ contract MetaVaultTest is Test {
         // Request large withdrawal
         vm.startPrank(user);
         uint256 requestAmount = 4 * THOUSAND_6;
-        bytes32 withdrawKey = vault.requestRedeem(requestAmount, user, user, 0);
+        uint256 sharesToRedeem = vault.previewWithdraw(requestAmount);
+        bytes32 withdrawKey = vault.requestRedeem(sharesToRedeem, user, user, 0);
         vm.stopPrank();
 
         assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
@@ -1068,8 +1071,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1104,8 +1107,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 300);
-        logVaultTwo.setEntryAndExitCost(0, 100);
+        logVaultOne.setEntryAndExitCost(0, 0.003 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.001 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1131,8 +1134,8 @@ contract MetaVaultTest is Test {
     function test_requestRedeem_maxRequestExceeded() public afterAllocated {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         uint256 maxRequest = vault.maxRequestRedeem(user);
@@ -1154,8 +1157,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 200);
-        logVaultTwo.setEntryAndExitCost(0, 150);
+        logVaultOne.setEntryAndExitCost(0, 0.002 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.001 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1183,8 +1186,8 @@ contract MetaVaultTest is Test {
     function test_edgeCase_veryHighExitCost() public afterAllocated afterFullyUtilized assertPendingWithdrawalsZero {
         // Set extremely high exit cost
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 10000);
-        logVaultTwo.setEntryAndExitCost(0, 50000);
+        logVaultOne.setEntryAndExitCost(0, 0.002 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.005 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1244,7 +1247,7 @@ contract MetaVaultTest is Test {
 
         // Set exit cost for remaining vault
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
         vm.stopPrank();
 
         // Utilize assets
@@ -1255,9 +1258,9 @@ contract MetaVaultTest is Test {
 
         // Request withdrawal
         vm.startPrank(user);
-        uint256 requestAmount = 4 * THOUSAND_6 + 500;
-        uint256 previewedAssets = vault.previewRedeem(requestAmount);
-        bytes32 withdrawKey = vault.requestRedeem(requestAmount, user, user, 0);
+        uint256 requestAssets = 4 * THOUSAND_6 + THOUSAND_6 / 2;
+        uint256 sharesToRedeem = vault.previewRedeem(requestAssets);
+        bytes32 withdrawKey = vault.requestRedeem(sharesToRedeem, user, user, 0);
         vm.stopPrank();
 
         assertTrue(withdrawKey != bytes32(0), "Should create withdraw request with single target");
@@ -1270,8 +1273,8 @@ contract MetaVaultTest is Test {
     function test_edgeCase_shutdownVault() public afterAllocated afterFullyUtilized assertPendingWithdrawalsZero {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         // Shutdown the vault
@@ -1296,8 +1299,8 @@ contract MetaVaultTest is Test {
     function test_edgeCase_verySmallAmounts() public afterAllocated afterFullyUtilized assertPendingWithdrawalsZero {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1327,8 +1330,8 @@ contract MetaVaultTest is Test {
     function test_fullyUtilized_maxWithdraw() public afterAllocated afterFullyUtilized assertPendingWithdrawalsZero {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         uint256 maxWithdrawAmount = vault.maxWithdraw(user);
@@ -1342,8 +1345,8 @@ contract MetaVaultTest is Test {
     function test_fullyUtilized_maxRedeem() public afterAllocated afterFullyUtilized {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 150);
-        logVaultTwo.setEntryAndExitCost(0, 300);
+        logVaultOne.setEntryAndExitCost(0, 0.0015 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.003 ether);
         vm.stopPrank();
 
         uint256 maxRedeemShares = vault.maxRedeem(user);
@@ -1358,8 +1361,8 @@ contract MetaVaultTest is Test {
     function test_fullyUtilized_requestRedeem() public afterAllocated afterFullyUtilized assertPendingWithdrawalsZero {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 200);
-        logVaultTwo.setEntryAndExitCost(0, 150);
+        logVaultOne.setEntryAndExitCost(0, 0.002 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.0015 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1394,8 +1397,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1432,8 +1435,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         uint256 maxWithdrawAmount = vault.maxWithdraw(user);
@@ -1452,8 +1455,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 150);
-        logVaultTwo.setEntryAndExitCost(0, 300);
+        logVaultOne.setEntryAndExitCost(0, 0.0015 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.003 ether);
         vm.stopPrank();
 
         uint256 maxRedeemShares = vault.maxRedeem(user);
@@ -1473,8 +1476,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 200);
-        logVaultTwo.setEntryAndExitCost(0, 150);
+        logVaultOne.setEntryAndExitCost(0, 0.002 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.0015 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1507,8 +1510,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1544,8 +1547,8 @@ contract MetaVaultTest is Test {
 
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1557,7 +1560,8 @@ contract MetaVaultTest is Test {
         // Request withdrawal
         vm.startPrank(user);
         uint256 requestAmount = 4 * THOUSAND_6;
-        bytes32 withdrawKey = vault.requestRedeem(requestAmount, user, user, 0);
+        uint256 sharesToRedeem = vault.previewWithdraw(requestAmount);
+        bytes32 withdrawKey = vault.requestRedeem(sharesToRedeem, user, user, 0);
         vm.stopPrank();
 
         assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
@@ -1578,8 +1582,8 @@ contract MetaVaultTest is Test {
 
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 200);
-        logVaultTwo.setEntryAndExitCost(0, 100);
+        logVaultOne.setEntryAndExitCost(0, 0.002 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.001 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1591,7 +1595,8 @@ contract MetaVaultTest is Test {
         // Request withdrawal
         vm.startPrank(user);
         uint256 requestAmount = 4 * THOUSAND_6;
-        bytes32 withdrawKey = vault.requestRedeem(requestAmount, user, user, 0);
+        uint256 sharesToRedeem = vault.previewWithdraw(requestAmount);
+        bytes32 withdrawKey = vault.requestRedeem(sharesToRedeem, user, user, 0);
         vm.stopPrank();
 
         assertTrue(withdrawKey != bytes32(0), "Should create withdraw request");
@@ -1612,8 +1617,8 @@ contract MetaVaultTest is Test {
 
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 150);
-        logVaultTwo.setEntryAndExitCost(0, 100);
+        logVaultOne.setEntryAndExitCost(0, 0.0015 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.001 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1653,8 +1658,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1686,8 +1691,8 @@ contract MetaVaultTest is Test {
     {
         // Set exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         uint256 initialIdle = vault.idleAssets();
@@ -1726,8 +1731,8 @@ contract MetaVaultTest is Test {
 
         // Set initial exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 100);
-        logVaultTwo.setEntryAndExitCost(0, 200);
+        logVaultOne.setEntryAndExitCost(0, 0.001 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.002 ether);
         vm.stopPrank();
 
         // Request withdrawal with initial exit costs
@@ -1740,8 +1745,8 @@ contract MetaVaultTest is Test {
 
         // Change exit costs
         vm.startPrank(owner);
-        logVaultOne.setEntryAndExitCost(0, 300);
-        logVaultTwo.setEntryAndExitCost(0, 150);
+        logVaultOne.setEntryAndExitCost(0, 0.003 ether);
+        logVaultTwo.setEntryAndExitCost(0, 0.0015 ether);
         vm.stopPrank();
 
         // Request another withdrawal with new exit costs
@@ -2106,7 +2111,7 @@ contract MetaVaultTest is Test {
     {
         uint256 totalAssetsBefore = vault.totalAssets();
         uint256 amount = initIdle + THOUSAND_6 * 3 / 2;
-        uint256 previewedAssets = vault.previewRedeem(amount);
+        uint256 sharesToRedeem = vault.previewWithdraw(amount);
         uint256 userAssetsBefore = asset.balanceOf(user);
         uint256 totalIdle = vault.getTotalIdleAssets();
 
@@ -2114,7 +2119,7 @@ contract MetaVaultTest is Test {
         uint256 logTwoReservedCostBefore = strategyTwo.reservedExecutionCost();
         uint256 sharePriceBefore = vault.convertToAssets(1e10);
         vm.startPrank(user);
-        bytes32 withdrawKey = vault.requestRedeem(amount, user, user, previewedAssets);
+        bytes32 withdrawKey = vault.requestRedeem(sharesToRedeem, user, user, amount);
         assertTrue(withdrawKey != bytes32(0), "Withdraw key shouldn't be 0");
         vm.stopPrank();
         uint256 sharePriceAfter = vault.convertToAssets(1e10);
@@ -2127,7 +2132,7 @@ contract MetaVaultTest is Test {
 
         assertEq(
             vault.totalAssets(),
-            totalAssetsBefore - previewedAssets - exitCost,
+            totalAssetsBefore - amount - exitCost,
             "Total assets should be decreased by amount and exit cost"
         );
         assertEq(vault.idleAssets(), 0, "Idle assets should be 0");
@@ -2144,11 +2149,7 @@ contract MetaVaultTest is Test {
         vault.claim(withdrawKey);
         uint256 sharePriceAfterClaim = vault.convertToAssets(1e10);
         assertEq(sharePriceAfterClaim, sharePriceAfter, "Share price should be the same after claim");
-        assertEq(
-            asset.balanceOf(user),
-            userAssetsBefore + previewedAssets,
-            "User assets should be increased by previewedAssets"
-        );
+        assertEq(asset.balanceOf(user), userAssetsBefore + amount, "User assets should be increased by amount");
     }
 
     function test_sharePriceConsistency_claimAllocations()
@@ -2202,5 +2203,35 @@ contract MetaVaultTest is Test {
             )
         );
         vault.requestRedeem(amount, user, user, minAssetsToReceive);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           PREVIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_previewRedeem_woUtilization() public afterAllocated {
+        uint256 assets = THOUSAND_6 * 3 / 2;
+        uint256 shares = vault.previewWithdraw(assets);
+        uint256 previewedAssets = vault.previewRedeem(shares);
+        assertEq(previewedAssets, assets, "Previewed assets should be equal to amount");
+    }
+
+    function test_previewRedeem_wPartialUtilization() public afterAllocated {
+        strategyOne.utilize(THOUSAND_6);
+
+        uint256 assets = THOUSAND_6 * 3 / 2;
+        uint256 shares = vault.previewWithdraw(assets);
+        uint256 previewedAssets = vault.previewRedeem(shares);
+        assertEq(previewedAssets, assets, "Previewed assets should be equal to amount");
+    }
+
+    function test_previewRedeem_wFullUtilization() public afterAllocated {
+        strategyOne.utilize(THOUSAND_6);
+        strategyTwo.utilize(THOUSAND_6);
+
+        uint256 assets = THOUSAND_6 * 3 / 2;
+        uint256 shares = vault.previewWithdraw(assets);
+        uint256 previewedAssets = vault.previewRedeem(shares);
+        assertEq(previewedAssets, assets, "Previewed assets should be equal to amount");
     }
 }

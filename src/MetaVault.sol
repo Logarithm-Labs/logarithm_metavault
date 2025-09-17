@@ -246,16 +246,24 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         }
 
         uint256 assets = previewRedeem(shares);
-        if (assets < minAssetsToReceive) {
-            revert MV__ExceededMinAssetsToReceive(minAssetsToReceive, assets);
+
+        (bytes32 withdrawKey, uint256 executedAssets) = _processWithdrawRequest(assets, shares, receiver, owner);
+        if (executedAssets < minAssetsToReceive) {
+            revert MV__ExceededMinAssetsToReceive(minAssetsToReceive, executedAssets);
         }
 
-        return _processRequest(assets, shares, receiver, owner);
+        // claim if available
+        if (withdrawKey != bytes32(0) && isClaimable(withdrawKey)) {
+            _claim(withdrawKey);
+            withdrawKey = bytes32(0);
+        }
+
+        return withdrawKey;
     }
 
-    function _processRequest(uint256 assets, uint256 shares, address receiver, address owner)
+    function _processWithdrawRequest(uint256 assets, uint256 shares, address receiver, address owner)
         internal
-        returns (bytes32)
+        returns (bytes32 withdrawKey, uint256 executedAssets)
     {
         uint256 maxAssets = maxWithdraw(owner);
         uint256 assetsToWithdraw = Math.min(assets, maxAssets);
@@ -265,12 +273,28 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         uint256 sharesToRedeem = _convertToShares(assetsToWithdraw, Math.Rounding.Ceil);
         uint256 sharesToRequest = shares - sharesToRedeem;
 
-        if (assetsToWithdraw > 0) _withdraw(_msgSender(), receiver, owner, assetsToWithdraw, sharesToRedeem);
+        if (assetsToWithdraw > 0) {
+            executedAssets = assetsToWithdraw;
+            _withdraw(_msgSender(), receiver, owner, assetsToWithdraw, sharesToRedeem);
+        }
 
         if (assetsToRequest > 0) {
-            return _requestWithdraw(_msgSender(), receiver, owner, assetsToRequest, sharesToRequest);
+            // check if there are any redemption from allocation beyond processing withdrawal request
+            uint256 assetBalance = IERC20(asset()).balanceOf(address(this));
+            // claimableAssets should be zero because we have claimed all within _withdraw
+            (uint256 requestedAssets,) = allocationPendingAndClaimable();
+            (, uint256 assetsRequestedBeyondWithdrawRequest) = (assetBalance + requestedAssets).trySub(assetsToClaim());
+            if (assetsRequestedBeyondWithdrawRequest < assetsToRequest) {
+                (uint256 immediate, uint256 pending) =
+                    _withdrawFromAllocations(assetsToRequest - assetsRequestedBeyondWithdrawRequest);
+                assetsToRequest = assetsRequestedBeyondWithdrawRequest + immediate + pending;
+            }
+
+            executedAssets += assetsToRequest;
+            withdrawKey = _requestWithdraw(_msgSender(), receiver, owner, assetsToRequest, sharesToRequest);
         }
-        return bytes32(0);
+
+        return (withdrawKey, executedAssets);
     }
 
     /// @dev requestWithdraw/requestRedeem common workflow.
@@ -305,8 +329,6 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
 
         emit WithdrawRequested(caller, receiver, owner, withdrawKey, assetsToRequest, sharesToRequest);
 
-        _withdrawFromAllocations(assetsToRequest);
-
         return withdrawKey;
     }
 
@@ -338,6 +360,10 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         if (!isClaimable(withdrawKey)) {
             revert MV__NotClaimable();
         }
+        return _claim(withdrawKey);
+    }
+
+    function _claim(bytes32 withdrawKey) internal returns (uint256) {
         _claimAllocations();
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         WithdrawRequest memory withdrawRequest = $.withdrawRequests[withdrawKey];
