@@ -108,7 +108,7 @@ contract MetaVaultTest is Test {
     }
 
     function test_prod_nonstandard_tokemak() public {
-        vm.createSelectFork("base", 35577051);
+        vm.createSelectFork("base", 35668191);
         IERC20 usdc = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
         address tal = 0xd7ac0DAe994E1d1EdbbDe130f6c6F1a6D907cA08;
         uint256 usdcBalBefore = usdc.balanceOf(tal);
@@ -124,7 +124,26 @@ contract MetaVaultTest is Test {
         prodMetaVault.requestRedeem(sharesToRedeem, tal, tal, 0);
         vm.stopPrank();
         uint256 usdcBalAfter = usdc.balanceOf(tal);
-        assertEq(usdcBalAfter - usdcBalBefore, 250245447, "usdc balance should be increased");
+        assertEq(usdcBalAfter - usdcBalBefore, 250313234, "usdc balance should be increased");
+    }
+
+    function test_prod_gas_tokemak() public {
+        vm.createSelectFork("base", 35668191);
+        IERC20 usdc = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
+        address tal = 0xd7ac0DAe994E1d1EdbbDe130f6c6F1a6D907cA08;
+        uint256 usdcBalBefore = usdc.balanceOf(tal);
+        MetaVault newMetaVault = new MetaVault();
+        VaultFactory prodFactory = VaultFactory(0xEC75BA21822B95AF6fA0d857bd85CE648210Cb5e);
+        vm.startPrank(0x2aDF216832582B2826C25914A4a7b565AEBb180D);
+        prodFactory.upgradeTo(address(newMetaVault));
+        MetaVault prodMetaVault = MetaVault(0x52c88801b8B9159620a0d689f4cE8e9f723Ea995);
+        uint256 sharesToRedeem = prodMetaVault.balanceOf(tal);
+        vm.startPrank(tal);
+        uint256 gasBefore = gasleft();
+        prodMetaVault.requestRedeem(sharesToRedeem, tal, tal, 0);
+        uint256 gasAfter = gasleft();
+        console.log("gas", gasBefore - gasAfter);
+        vm.stopPrank();
     }
 
     function test_prod_nonstandard_maxWithdraw() public {

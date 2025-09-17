@@ -7,6 +7,8 @@ import {ILogarithmVault} from "../interfaces/ILogarithmVault.sol";
 library VaultAdapter {
     using Math for uint256;
 
+    address constant TOKEMAK_VAULT = 0x9c6864105AEC23388C89600046213a44C384c831;
+
     uint256 private constant _BASIS_POINT_SCALE = 1e4; // 100%
 
     /// @notice Deposit assets into a target vault.
@@ -73,13 +75,11 @@ library VaultAdapter {
     }
 
     /// @notice Preview assets for a given amount of shares on a target vault.
-    /// @dev Tries previewRedeem first; falls back to convertToAssets.
+    /// @dev If the target is TOKEMAK_VAULT, use convertToAssets instead of previewRedeem.
+    /// This is because TOKEMAK_VAULT doesn't have standard previewRedeem implementation.
     function tryPreviewAssets(address target, uint256 shares) internal view returns (uint256) {
-        try ILogarithmVault(target).previewRedeem(shares) returns (uint256 previewAssets) {
-            return previewAssets;
-        } catch {
-            return ILogarithmVault(target).convertToAssets(shares);
-        }
+        if (target == TOKEMAK_VAULT) return ILogarithmVault(target).convertToAssets(shares);
+        else return ILogarithmVault(target).previewRedeem(shares);
     }
 
     /// @notice Convert assets to shares on a target vault.
