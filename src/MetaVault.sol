@@ -93,7 +93,6 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     error MV__ExceededMaxRequestRedeem(address owner, uint256 shares, uint256 max);
     error MV__ZeroShares();
     error MV__ExceededMinAssetsToReceive(uint256 minAssetsToReceive, uint256 assets);
-    error MV__ExceededMaxSharesToBurn(uint256 maxSharesToBurn, uint256 shares);
 
     /*//////////////////////////////////////////////////////////////
                              INITIALIZATION
@@ -195,19 +194,11 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         super._withdraw(caller, receiver, owner, assets, shares);
     }
 
-    /// @notice Returns the maximum amount of the underlying asset that can be
-    /// requested to withdraw from the owner balance in the Vault,
-    /// through a requestWithdraw call.
-    /// @dev The actual amount maybe get smaller due to deallocation costs
-    function maxRequestWithdraw(address owner) public view virtual returns (uint256) {
-        return super.maxWithdraw(owner);
-    }
-
     /// @notice Returns the maximum amount of Vault shares that can be
     /// requested to redeem from the owner balance in the Vault,
     /// through a requestRedeem call.
     function maxRequestRedeem(address owner) public view virtual returns (uint256) {
-        return super.maxRedeem(owner);
+        return balanceOf(owner);
     }
 
     /// @inheritdoc IERC4626
@@ -229,37 +220,6 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         uint256 exitCost = _previewAllocationExitCostOnTotal(assetsToRequest);
         assets -= exitCost;
         return assets;
-    }
-
-    /// @notice Requests to withdraw assets.
-    /// If idle assets are available in the Vault, they are withdrawn synchronously
-    /// within the `requestWithdraw` call, while any shortfall amount remains
-    /// pending for execution by the system.
-    ///
-    /// @dev Burns shares from owner and sends exactly assets of underlying tokens
-    /// to receiver if the idle assets is enough.
-    /// If the idle assets is not enough, creates a withdraw request with
-    /// the shortfall assets while sending the idle assets to receiver.
-    ///
-    /// @return The withdraw key that will be used in the claim function.
-    /// None zero bytes32 value if the requested asset amount is bigger than the idle assets,
-    /// otherwise zero bytes32 value.
-    function requestWithdraw(uint256 assets, address receiver, address owner, uint256 maxSharesToBurn)
-        public
-        virtual
-        returns (bytes32)
-    {
-        uint256 maxRequestAssets = maxRequestWithdraw(owner);
-        if (assets > maxRequestAssets) {
-            revert MV__ExceededMaxRequestWithdraw(owner, assets, maxRequestAssets);
-        }
-
-        uint256 shares = previewWithdraw(assets);
-        if (shares > maxSharesToBurn) {
-            revert MV__ExceededMaxSharesToBurn(maxSharesToBurn, shares);
-        }
-
-        return _processRequest(assets, shares, receiver, owner);
     }
 
     /// @notice Requests to redeem shares.
