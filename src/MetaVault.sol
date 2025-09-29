@@ -477,6 +477,10 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         return withdrawRequest.cumulativeRequestedWithdrawalAssets <= cumulativeWithdrawnAssets() + directlyAvailable;
     }
 
+    function isClaimed(bytes32 withdrawKey) public view returns (bool) {
+        return _getMetaVaultStorage().withdrawRequests[withdrawKey].isClaimed;
+    }
+
     /*//////////////////////////////////////////////////////////////
                            INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
