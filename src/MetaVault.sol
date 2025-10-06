@@ -470,7 +470,7 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         (, uint256 claimableAssets) = allocationPendingAndClaimable();
         WithdrawRequest memory withdrawRequest = withdrawRequests(withdrawKey);
 
-        if (withdrawRequest.isClaimed) return false;
+        if (withdrawRequest.isClaimed || withdrawRequest.requestedAssets == 0) return false;
 
         // Check if we have enough assets directly available
         uint256 directlyAvailable = assetBalance + claimableAssets;
