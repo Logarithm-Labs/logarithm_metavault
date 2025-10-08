@@ -6,17 +6,21 @@ import {DeployHelper} from "./utils/DeployHelper.sol";
 import {VaultFactory} from "../src/VaultFactory.sol";
 import {MetaVault} from "../src/MetaVault.sol";
 import {BaseAddress, ArbitrumAddress} from "./utils/Address.sol";
+import {console2 as console} from "forge-std/console2.sol";
 
-address constant OWNER = 0x2aDF216832582B2826C25914A4a7b565AEBb180D;
+address constant OWNER = 0xd1DD21D53eC43C8FE378E51029Aa3F380b229c98;
 
 contract DeployVaultFactoryBase is Script {
     function run() public {
-        uint256 privateKey = vm.envUint("PRIVATE_KEY");
+        // uint256 privateKey = vm.envUint("PRIVATE_KEY");
         vm.createSelectFork("base");
-        vm.startBroadcast(privateKey);
+        vm.startBroadcast( /* privateKey */ );
         VaultFactory factory = new VaultFactory(BaseAddress.VAULT_REGISTRY, address(new MetaVault()), OWNER);
-        factory.createVault(true, BaseAddress.USDC, "Tal's Vault", "TV");
+        address vault = factory.createVault(true, BaseAddress.USDC, "ACP USDC Hive Vault", "acpUSDC");
         vm.stopBroadcast();
+
+        console.log("VaultFactory deployed at:", address(factory));
+        console.log("Vault deployed at:", vault);
     }
 }
 
