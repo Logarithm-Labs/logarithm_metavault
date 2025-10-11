@@ -25,7 +25,7 @@ wrap_comments = true
 single_line_statement_blocks = "single"
 
 # Function header formatting
-multiline_func_header = "params_first"
+multiline_func_header = "all"
 
 # Import organization
 sort_imports = true

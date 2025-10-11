@@ -62,9 +62,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
                                MODIFIERS
     //////////////////////////////////////////////////////////////*/
 
-    modifier noneZeroAddress(
-        address vault
-    ) {
+    modifier noneZeroAddress(address vault) {
         if (vault == address(0)) revert WP__ZeroAddress();
         _;
     }
@@ -77,15 +75,11 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
         _disableInitializers();
     }
 
-    function initialize(
-        address initialOwner
-    ) external initializer {
+    function initialize(address initialOwner) external initializer {
         __Ownable_init(initialOwner);
     }
 
-    function _authorizeUpgrade(
-        address /*newImplementation*/
-    ) internal virtual override onlyOwner {}
+    function _authorizeUpgrade(address /*newImplementation*/ ) internal virtual override onlyOwner {}
 
     /*//////////////////////////////////////////////////////////////
                             ADMIN FUNCTIONS
@@ -94,9 +88,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Owner function to set the agent
     ///
     /// @param _agent The address of the agent
-    function setAgent(
-        address _agent
-    ) public noneZeroAddress(_agent) onlyOwner {
+    function setAgent(address _agent) public noneZeroAddress(_agent) onlyOwner {
         if (agent() != _agent) {
             _getVaultRegistryStorage().agent = _agent;
             emit AgentSet(_agent);
@@ -106,9 +98,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Owner or agent function to register a vault
     ///
     /// @param vault The address of the vault to register
-    function register(
-        address vault
-    ) public noneZeroAddress(vault) {
+    function register(address vault) public noneZeroAddress(vault) {
         _onlyOwnerOrAgent();
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         if ($.registeredVaults.contains(vault)) revert WP__VaultAlreadyRegistered();
@@ -123,9 +113,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Owner function to approve a vault
     ///
     /// @param vault The address of the vault to approve
-    function approve(
-        address vault
-    ) public onlyOwner noneZeroAddress(vault) {
+    function approve(address vault) public onlyOwner noneZeroAddress(vault) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         if ($.registeredVaults.contains(vault)) {
             $.isApproved[vault] = true;
@@ -138,9 +126,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Owner function to remove a vault from registered vaults
     ///
     /// @param vault The address of the vault to remove
-    function unapprove(
-        address vault
-    ) public onlyOwner noneZeroAddress(vault) {
+    function unapprove(address vault) public onlyOwner noneZeroAddress(vault) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         if ($.registeredVaults.contains(vault)) {
             $.isApproved[vault] = false;
@@ -151,9 +137,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     /// @notice Owner function to shutdown a meta vault
-    function shutdownMetaVault(
-        address metaVault
-    ) public onlyOwner noneZeroAddress(metaVault) {
+    function shutdownMetaVault(address metaVault) public onlyOwner noneZeroAddress(metaVault) {
         IMetaVault(metaVault).shutdown();
     }
 
@@ -168,17 +152,13 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     /// @notice True if an inputted vault is registered
-    function isRegistered(
-        address vault
-    ) public view returns (bool) {
+    function isRegistered(address vault) public view returns (bool) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         return $.registeredVaults.contains(vault);
     }
 
     /// @notice True if an inputted vault is approved
-    function isApproved(
-        address vault
-    ) public view returns (bool) {
+    function isApproved(address vault) public view returns (bool) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         return $.isApproved[vault];
     }

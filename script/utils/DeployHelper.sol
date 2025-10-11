@@ -7,9 +7,7 @@ import {VaultRegistry} from "src/VaultRegistry.sol";
 
 library DeployHelper {
 
-    function deployVaultRegistry(
-        address owner
-    ) internal returns (VaultRegistry) {
+    function deployVaultRegistry(address owner) internal returns (VaultRegistry) {
         return VaultRegistry(
             address(
                 new ERC1967Proxy(

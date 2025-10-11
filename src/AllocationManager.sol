@@ -63,9 +63,7 @@ abstract contract AllocationManager {
     //////////////////////////////////////////////////////////////*/
 
     function _allocationAsset() internal view virtual returns (address);
-    function _validateTarget(
-        address target
-    ) internal view virtual;
+    function _validateTarget(address target) internal view virtual;
 
     /*//////////////////////////////////////////////////////////////
                                ALLOCATE
@@ -84,9 +82,7 @@ abstract contract AllocationManager {
         emit Allocated(target, assets, shares, allocationCost);
     }
 
-    function _reserveAllocationCost(
-        uint256 amount
-    ) internal {
+    function _reserveAllocationCost(uint256 amount) internal {
         _getAllocationStorage().reservedAllocationCost += amount;
     }
 
@@ -105,7 +101,11 @@ abstract contract AllocationManager {
     function _allocateBatch(
         address[] memory targets,
         uint256[] memory assets
-    ) internal virtual returns (uint256 totalAssets) {
+    )
+        internal
+        virtual
+        returns (uint256 totalAssets)
+    {
         uint256 len = targets.length;
         if (assets.length != len) revert AM__InvalidInputLength();
         for (uint256 i; i < len;) {
@@ -139,7 +139,11 @@ abstract contract AllocationManager {
         address target,
         uint256 shares,
         address receiver
-    ) internal virtual returns (uint256 immediate, uint256 pending) {
+    )
+        internal
+        virtual
+        returns (uint256 immediate, uint256 pending)
+    {
         if (shares == 0) return (immediate, pending);
         uint256 previewAssets = VaultAdapter.tryPreviewAssets(target, shares);
         address _asset = _allocationAsset();
@@ -160,7 +164,10 @@ abstract contract AllocationManager {
         address[] memory targets,
         uint256[] memory assets,
         address receiver
-    ) internal virtual {
+    )
+        internal
+        virtual
+    {
         uint256 len = targets.length;
         if (assets.length != len) revert AM__InvalidInputLength();
         for (uint256 i; i < len;) {
@@ -175,7 +182,11 @@ abstract contract AllocationManager {
         address[] memory targets,
         uint256[] memory shares,
         address receiver
-    ) internal virtual returns (uint256 totalImmediate, uint256 totalPending) {
+    )
+        internal
+        virtual
+        returns (uint256 totalImmediate, uint256 totalPending)
+    {
         uint256 len = targets.length;
         if (shares.length != len) revert AM__InvalidInputLength();
         for (uint256 i; i < len;) {
@@ -190,9 +201,7 @@ abstract contract AllocationManager {
     }
 
     /// @dev Withdraw from target vault idle assets
-    function _withdrawFromTargetIdleAssets(
-        uint256 assetsToWithdraw
-    ) internal {
+    function _withdrawFromTargetIdleAssets(uint256 assetsToWithdraw) internal {
         if (assetsToWithdraw == 0) return;
 
         // Withdraw from target vault idle assets
@@ -222,9 +231,10 @@ abstract contract AllocationManager {
     }
 
     /// @dev Withdraw from allocations in the ascending order of exit cost
-    function _withdrawFromAllocations(
-        uint256 assetsToWithdraw
-    ) internal returns (uint256 totalImmediate, uint256 totalPending) {
+    function _withdrawFromAllocations(uint256 assetsToWithdraw)
+        internal
+        returns (uint256 totalImmediate, uint256 totalPending)
+    {
         if (assetsToWithdraw == 0) return (totalImmediate, totalPending);
 
         uint256 remainingAssets = assetsToWithdraw;
@@ -313,9 +323,7 @@ abstract contract AllocationManager {
         return _getAllocationStorage().claimableTargets.values();
     }
 
-    function withdrawKeysFor(
-        address target
-    ) public view returns (bytes32[] memory) {
+    function withdrawKeysFor(address target) public view returns (bytes32[] memory) {
         return _getAllocationStorage().withdrawKeysByTarget[target].values();
     }
 
@@ -331,9 +339,7 @@ abstract contract AllocationManager {
         }
     }
 
-    function allocatedAssetsFor(
-        address target
-    ) public view returns (uint256 assets) {
+    function allocatedAssetsFor(address target) public view returns (uint256 assets) {
         uint256 shares = VaultAdapter.shareBalanceOf(target, address(this));
         if (shares > 0) assets = VaultAdapter.convertToAssets(target, shares);
         return assets;
@@ -372,21 +378,15 @@ abstract contract AllocationManager {
                            INTERNAL HELPERS
     //////////////////////////////////////////////////////////////*/
 
-    function _addAllocatedTarget(
-        address target
-    ) internal {
+    function _addAllocatedTarget(address target) internal {
         _getAllocationStorage().allocatedTargets.add(target);
     }
 
-    function _maybePruneAllocated(
-        address target
-    ) internal {
+    function _maybePruneAllocated(address target) internal {
         if (VaultAdapter.shareBalanceOf(target, address(this)) == 0) _pruneAllocated(target);
     }
 
-    function _pruneAllocated(
-        address target
-    ) internal {
+    function _pruneAllocated(address target) internal {
         _getAllocationStorage().allocatedTargets.remove(target);
     }
 
@@ -406,9 +406,7 @@ abstract contract AllocationManager {
     }
 
     /// @dev Calculates the exit cost against raw assets assuming targets have no idle assets.
-    function _previewAllocationExitCostOnRaw(
-        uint256 assets
-    ) internal view returns (uint256 cost) {
+    function _previewAllocationExitCostOnRaw(uint256 assets) internal view returns (uint256 cost) {
         if (assets == 0) return 0;
 
         address[] memory targets = allocatedTargets();
@@ -442,9 +440,7 @@ abstract contract AllocationManager {
     }
 
     /// @dev Calculates the exit cost against total assets assuming targets have idle assets.
-    function _previewAllocationExitCostOnTotal(
-        uint256 assets
-    ) internal view returns (uint256 cost) {
+    function _previewAllocationExitCostOnTotal(uint256 assets) internal view returns (uint256 cost) {
         if (assets == 0) return 0;
 
         address[] memory targets = allocatedTargets();

@@ -3,11 +3,7 @@ pragma solidity ^0.8.0;
 
 interface IVaultRegistry {
 
-    function isRegistered(
-        address vault
-    ) external view returns (bool);
-    function isApproved(
-        address vault
-    ) external view returns (bool);
+    function isRegistered(address vault) external view returns (bool);
+    function isApproved(address vault) external view returns (bool);
 
 }

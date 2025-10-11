@@ -18,16 +18,12 @@ contract MockStrategy {
         vault = LogarithmVault(vault_);
     }
 
-    function utilize(
-        uint256 amount
-    ) public {
+    function utilize(uint256 amount) public {
         asset.burn(address(vault), amount);
         utilizedAssets += amount;
     }
 
-    function deutilize(
-        uint256 amount
-    ) public {
+    function deutilize(uint256 amount) public {
         asset.mint(address(vault), amount);
         utilizedAssets -= amount;
         vault.processPendingWithdrawRequests();
@@ -35,9 +31,7 @@ contract MockStrategy {
 
     function processAssetsToWithdraw() public {}
 
-    function reserveExecutionCost(
-        uint256 cost
-    ) public {
+    function reserveExecutionCost(uint256 cost) public {
         executionCost += cost;
     }
 

@@ -41,9 +41,7 @@ abstract contract CostAwareManagedVault is ManagedVault {
         }
     }
 
-    function _setEntryCost(
-        uint256 costBps
-    ) internal {
+    function _setEntryCost(uint256 costBps) internal {
         if (costBps > _MAX_ENTRY_COST_BPS) revert MVC__EntryCostExceedMaxLimit();
         _getManagedVaultWithCostStorage().entryCostBps = costBps;
         emit EntryCostUpdated(_msgSender(), costBps);
@@ -54,9 +52,7 @@ abstract contract CostAwareManagedVault is ManagedVault {
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Process the cost
-    function _processCost(
-        uint256 cost
-    ) internal virtual;
+    function _processCost(uint256 cost) internal virtual;
 
     /*//////////////////////////////////////////////////////////////
                             ADMIN LOGIC
@@ -64,9 +60,7 @@ abstract contract CostAwareManagedVault is ManagedVault {
 
     /// @notice Set the entry cost
     /// @param costBps The entry cost in basis points
-    function setEntryCost(
-        uint256 costBps
-    ) external onlyOwner {
+    function setEntryCost(uint256 costBps) external onlyOwner {
         _setEntryCost(costBps);
     }
 
@@ -75,24 +69,18 @@ abstract contract CostAwareManagedVault is ManagedVault {
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc ERC4626Upgradeable
-    function previewDeposit(
-        uint256 assets
-    ) public view virtual override returns (uint256) {
+    function previewDeposit(uint256 assets) public view virtual override returns (uint256) {
         (uint256 shares,) = _previewDepositWithCost(assets);
         return shares;
     }
 
     /// @inheritdoc ERC4626Upgradeable
-    function previewMint(
-        uint256 shares
-    ) public view virtual override returns (uint256) {
+    function previewMint(uint256 shares) public view virtual override returns (uint256) {
         (uint256 assets,) = _previewMintWithCost(shares);
         return assets;
     }
 
-    function _previewDepositWithCost(
-        uint256 assets
-    ) private view returns (uint256 shares, uint256 cost) {
+    function _previewDepositWithCost(uint256 assets) private view returns (uint256 shares, uint256 cost) {
         cost = VaultAdapter.costOnTotal(assets, entryCostBps());
         assets -= cost;
 
@@ -100,9 +88,7 @@ abstract contract CostAwareManagedVault is ManagedVault {
         return (shares, cost);
     }
 
-    function _previewMintWithCost(
-        uint256 shares
-    ) private view returns (uint256 assets, uint256 cost) {
+    function _previewMintWithCost(uint256 shares) private view returns (uint256 assets, uint256 cost) {
         assets = _convertToAssets(shares, Math.Rounding.Ceil);
         cost = VaultAdapter.costOnRaw(assets, entryCostBps());
         assets += cost;

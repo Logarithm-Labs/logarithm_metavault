@@ -9,7 +9,8 @@ interface IMetaVault {
         address asset_,
         string calldata name_,
         string calldata symbol_
-    ) external;
+    )
+        external;
     function shutdown() external;
 
 }

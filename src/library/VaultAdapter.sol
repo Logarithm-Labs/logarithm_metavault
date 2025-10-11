@@ -25,7 +25,10 @@ library VaultAdapter {
         uint256 assets,
         address receiver,
         address owner
-    ) internal returns (bytes32) {
+    )
+        internal
+        returns (bytes32)
+    {
         // Prefer async interface if supported
         try ILogarithmVault(target).requestWithdraw(assets, receiver, owner) returns (bytes32 key) {
             return key;
@@ -43,7 +46,10 @@ library VaultAdapter {
         uint256 shares,
         address receiver,
         address owner
-    ) internal returns (bytes32) {
+    )
+        internal
+        returns (bytes32)
+    {
         // Prefer async interface if supported
         try ILogarithmVault(target).requestRedeem(shares, receiver, owner) returns (bytes32 key) {
             return key;
@@ -114,9 +120,7 @@ library VaultAdapter {
     }
 
     /// @notice Returns the asset token address for the target vault.
-    function asset(
-        address target
-    ) internal view returns (address) {
+    function asset(address target) internal view returns (address) {
         return ILogarithmVault(target).asset();
     }
 
@@ -146,9 +150,7 @@ library VaultAdapter {
 
     /// @notice Returns the idle assets available in a target vault.
     /// @dev Returns 0 if the target doesn't support idle assets (e.g., standard ERC4626 vaults).
-    function tryIdleAssets(
-        address target
-    ) internal view returns (uint256) {
+    function tryIdleAssets(address target) internal view returns (uint256) {
         try ILogarithmVault(target).idleAssets() returns (uint256 idleAssets) {
             return idleAssets;
         } catch {
@@ -159,9 +161,7 @@ library VaultAdapter {
 
     /// @notice Returns the entry cost for a target vault.
     /// @dev Returns 0 if the target doesn't support entry costs (e.g., standard ERC4626 vaults).
-    function tryEntryCost(
-        address target
-    ) internal view returns (uint256) {
+    function tryEntryCost(address target) internal view returns (uint256) {
         try ILogarithmVault(target).entryCost() returns (uint256 entryCost) {
             return entryCost;
         } catch {
@@ -172,9 +172,7 @@ library VaultAdapter {
 
     /// @notice Returns the exit cost for a target vault.
     /// @dev Returns 0 if the target doesn't support exit costs (e.g., standard ERC4626 vaults).
-    function tryExitCost(
-        address target
-    ) internal view returns (uint256) {
+    function tryExitCost(address target) internal view returns (uint256) {
         try ILogarithmVault(target).exitCost() returns (uint256 exitCost) {
             return exitCost;
         } catch {

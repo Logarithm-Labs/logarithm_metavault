@@ -45,7 +45,10 @@ contract MigrationMetaVault is MetaVault {
         uint256 targetShares,
         uint256 targetAssets,
         uint256 shares
-    ) internal virtual {
+    )
+        internal
+        virtual
+    {
         IERC20(targetVault).safeTransferFrom(owner, address(this), targetShares);
         _addAllocatedTarget(targetVault);
         _updateHwmDeposit(targetAssets);
