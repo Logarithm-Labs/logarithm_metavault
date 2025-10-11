@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
@@ -13,6 +13,7 @@ import {IMetaVault} from "src/interfaces/IMetaVault.sol";
 /// @author Logarithm Labs
 /// @notice Store vaults that are allowed to use as targets in meta vaults
 contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
+
     using EnumerableSet for EnumerableSet.AddressSet;
 
     /*//////////////////////////////////////////////////////////////
@@ -61,10 +62,10 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
                                MODIFIERS
     //////////////////////////////////////////////////////////////*/
 
-    modifier noneZeroAddress(address vault) {
-        if (vault == address(0)) {
-            revert WP__ZeroAddress();
-        }
+    modifier noneZeroAddress(
+        address vault
+    ) {
+        if (vault == address(0)) revert WP__ZeroAddress();
         _;
     }
 
@@ -76,11 +77,15 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
         _disableInitializers();
     }
 
-    function initialize(address initialOwner) external initializer {
+    function initialize(
+        address initialOwner
+    ) external initializer {
         __Ownable_init(initialOwner);
     }
 
-    function _authorizeUpgrade(address /*newImplementation*/ ) internal virtual override onlyOwner {}
+    function _authorizeUpgrade(
+        address /*newImplementation*/
+    ) internal virtual override onlyOwner {}
 
     /*//////////////////////////////////////////////////////////////
                             ADMIN FUNCTIONS
@@ -89,7 +94,9 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Owner function to set the agent
     ///
     /// @param _agent The address of the agent
-    function setAgent(address _agent) public noneZeroAddress(_agent) onlyOwner {
+    function setAgent(
+        address _agent
+    ) public noneZeroAddress(_agent) onlyOwner {
         if (agent() != _agent) {
             _getVaultRegistryStorage().agent = _agent;
             emit AgentSet(_agent);
@@ -99,12 +106,12 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Owner or agent function to register a vault
     ///
     /// @param vault The address of the vault to register
-    function register(address vault) public noneZeroAddress(vault) {
+    function register(
+        address vault
+    ) public noneZeroAddress(vault) {
         _onlyOwnerOrAgent();
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
-        if ($.registeredVaults.contains(vault)) {
-            revert WP__VaultAlreadyRegistered();
-        }
+        if ($.registeredVaults.contains(vault)) revert WP__VaultAlreadyRegistered();
         $.registeredVaults.add(vault);
         address underlyingAsset = IERC4626(vault).asset();
         string memory name = IERC4626(vault).name();
@@ -116,7 +123,9 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Owner function to approve a vault
     ///
     /// @param vault The address of the vault to approve
-    function approve(address vault) public onlyOwner noneZeroAddress(vault) {
+    function approve(
+        address vault
+    ) public onlyOwner noneZeroAddress(vault) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         if ($.registeredVaults.contains(vault)) {
             $.isApproved[vault] = true;
@@ -129,7 +138,9 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Owner function to remove a vault from registered vaults
     ///
     /// @param vault The address of the vault to remove
-    function unapprove(address vault) public onlyOwner noneZeroAddress(vault) {
+    function unapprove(
+        address vault
+    ) public onlyOwner noneZeroAddress(vault) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         if ($.registeredVaults.contains(vault)) {
             $.isApproved[vault] = false;
@@ -140,7 +151,9 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     /// @notice Owner function to shutdown a meta vault
-    function shutdownMetaVault(address metaVault) public onlyOwner noneZeroAddress(metaVault) {
+    function shutdownMetaVault(
+        address metaVault
+    ) public onlyOwner noneZeroAddress(metaVault) {
         IMetaVault(metaVault).shutdown();
     }
 
@@ -155,13 +168,17 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     /// @notice True if an inputted vault is registered
-    function isRegistered(address vault) public view returns (bool) {
+    function isRegistered(
+        address vault
+    ) public view returns (bool) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         return $.registeredVaults.contains(vault);
     }
 
     /// @notice True if an inputted vault is approved
-    function isApproved(address vault) public view returns (bool) {
+    function isApproved(
+        address vault
+    ) public view returns (bool) {
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
         return $.isApproved[vault];
     }
@@ -177,8 +194,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     //////////////////////////////////////////////////////////////*/
 
     function _onlyOwnerOrAgent() internal view {
-        if (_msgSender() != owner() && _msgSender() != agent()) {
-            revert WP__NotOwnerOrAgent();
-        }
+        if (_msgSender() != owner() && _msgSender() != agent()) revert WP__NotOwnerOrAgent();
     }
+
 }

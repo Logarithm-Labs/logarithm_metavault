@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import {Script} from "forge-std/Script.sol";
-import {DeployHelper} from "./utils/DeployHelper.sol";
 import {VaultRegistry} from "../src/VaultRegistry.sol";
-import {BaseAddress, ArbitrumAddress} from "./utils/Address.sol";
+import {ArbitrumAddress, BaseAddress} from "./utils/Address.sol";
+import {DeployHelper} from "./utils/DeployHelper.sol";
+import {Script} from "forge-std/Script.sol";
 
 address constant OWNER = 0x2aDF216832582B2826C25914A4a7b565AEBb180D;
 
 contract DeployVaultRegistryBase is Script {
+
     function run() public {
         uint256 privateKey = vm.envUint("PRIVATE_KEY");
         vm.createSelectFork("base");
@@ -16,9 +17,11 @@ contract DeployVaultRegistryBase is Script {
         DeployHelper.deployVaultRegistry(OWNER);
         vm.stopBroadcast();
     }
+
 }
 
 contract UpgradeVaultRegistryBase is Script {
+
     VaultRegistry vaultRegistry = VaultRegistry(BaseAddress.VAULT_REGISTRY);
 
     function run() public {
@@ -28,9 +31,11 @@ contract UpgradeVaultRegistryBase is Script {
         vaultRegistry.upgradeToAndCall(address(new VaultRegistry()), "");
         vm.stopBroadcast();
     }
+
 }
 
 contract DeployVaultRegistryArbitrum is Script {
+
     VaultRegistry vaultRegistry = VaultRegistry(ArbitrumAddress.VAULT_REGISTRY);
 
     function run() public {
@@ -40,9 +45,11 @@ contract DeployVaultRegistryArbitrum is Script {
         DeployHelper.deployVaultRegistry(OWNER);
         vm.stopBroadcast();
     }
+
 }
 
 contract UpgradeVaultRegistryArbitrum is Script {
+
     VaultRegistry vaultRegistry = VaultRegistry(ArbitrumAddress.VAULT_REGISTRY);
 
     function run() public {
@@ -52,4 +59,5 @@ contract UpgradeVaultRegistryArbitrum is Script {
         vaultRegistry.upgradeToAndCall(address(new VaultRegistry()), "");
         vm.stopBroadcast();
     }
+
 }

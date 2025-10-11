@@ -1,22 +1,24 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Test, console} from "forge-std/Test.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {LogarithmVault} from "@managed_basis/vault/LogarithmVault.sol";
-import {MockStrategy} from "test/mock/MockStrategy.sol";
-import {VaultRegistry} from "src/VaultRegistry.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Test, console} from "forge-std/Test.sol";
+
+import {DeployHelper} from "script/utils/DeployHelper.sol";
+import {AllocationManager} from "src/AllocationManager.sol";
 import {AllocationManager} from "src/AllocationManager.sol";
 import {MetaVault} from "src/MetaVault.sol";
 import {VaultFactory} from "src/VaultFactory.sol";
+import {VaultRegistry} from "src/VaultRegistry.sol";
 import {VaultAdapter} from "src/library/VaultAdapter.sol";
-import {DeployHelper} from "script/utils/DeployHelper.sol";
-import {AllocationManager} from "src/AllocationManager.sol";
+import {MockStrategy} from "test/mock/MockStrategy.sol";
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 contract MetaVaultTest is Test {
+
     uint256 constant THOUSAND_6 = 1_000_000_000;
     address owner = makeAddr("owner");
     address curator = makeAddr("curator");
@@ -108,7 +110,7 @@ contract MetaVaultTest is Test {
     }
 
     function test_prod_nonstandard_tokemak() public {
-        vm.createSelectFork("base", 35668191);
+        vm.createSelectFork("base", 35_668_191);
         IERC20 usdc = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
         address tal = 0xd7ac0DAe994E1d1EdbbDe130f6c6F1a6D907cA08;
         uint256 usdcBalBefore = usdc.balanceOf(tal);
@@ -124,11 +126,11 @@ contract MetaVaultTest is Test {
         prodMetaVault.requestRedeem(sharesToRedeem, tal, tal, 0);
         vm.stopPrank();
         uint256 usdcBalAfter = usdc.balanceOf(tal);
-        assertEq(usdcBalAfter - usdcBalBefore, 250313234, "usdc balance should be increased");
+        assertEq(usdcBalAfter - usdcBalBefore, 250_313_234, "usdc balance should be increased");
     }
 
     function test_prod_gas_tokemak() public {
-        vm.createSelectFork("base", 35668191);
+        vm.createSelectFork("base", 35_668_191);
         IERC20 usdc = IERC20(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
         address tal = 0xd7ac0DAe994E1d1EdbbDe130f6c6F1a6D907cA08;
         uint256 usdcBalBefore = usdc.balanceOf(tal);
@@ -147,7 +149,7 @@ contract MetaVaultTest is Test {
     }
 
     function test_prod_nonstandard_maxWithdraw() public {
-        vm.createSelectFork("base", 34040064);
+        vm.createSelectFork("base", 34_040_064);
         MetaVault newMetaVault = new MetaVault();
         VaultFactory prodFactory = VaultFactory(0x6Ea41B6Ef80153B2Dc5AddF2594C10bB53F605E0);
         vm.startPrank(0xd1DD21D53eC43C8FE378E51029Aa3F380b229c98);
@@ -158,7 +160,7 @@ contract MetaVaultTest is Test {
         address[] memory targets = new address[](1);
         targets[0] = address(0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca);
         uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 5686877890095;
+        amounts[0] = 5_686_877_890_095;
         prodMetaVault.redeemAllocations(targets, amounts);
         vm.stopPrank();
     }
@@ -198,7 +200,7 @@ contract MetaVaultTest is Test {
         address[] memory allocatedTargets = vault.allocatedTargets();
         assertEq(allocatedTargets[0], targets[0]);
         assertEq(allocatedTargets[1], targets[1]);
-        assertEq(vault.totalAssets(), 5000000000);
+        assertEq(vault.totalAssets(), 5_000_000_000);
     }
 
     function test_revert_allocateWithUnregisteredTarget() public {
@@ -268,17 +270,17 @@ contract MetaVaultTest is Test {
 
         assertEq(vault.allocatedAssets(), THOUSAND_6);
         (uint256 requestedAssets, uint256 claimableAssets) = vault.allocationPendingAndClaimable();
-        assertEq(requestedAssets, 1000000000);
+        assertEq(requestedAssets, 1_000_000_000);
         assertEq(claimableAssets, 0);
-        assertEq(vault.totalAssets(), 4 * THOUSAND_6 + 1000000000);
+        assertEq(vault.totalAssets(), 4 * THOUSAND_6 + 1_000_000_000);
         assertEq(vault.idleAssets(), 3 * THOUSAND_6);
 
         strategyOne.deutilize(THOUSAND_6);
         (requestedAssets, claimableAssets) = vault.allocationPendingAndClaimable();
         assertEq(requestedAssets, 0);
-        assertEq(claimableAssets, 1000000000);
-        assertEq(vault.totalAssets(), 4 * THOUSAND_6 + 1000000000);
-        assertEq(vault.idleAssets(), 3 * THOUSAND_6 + 1000000000, "idle assets should be increased");
+        assertEq(claimableAssets, 1_000_000_000);
+        assertEq(vault.totalAssets(), 4 * THOUSAND_6 + 1_000_000_000);
+        assertEq(vault.idleAssets(), 3 * THOUSAND_6 + 1_000_000_000, "idle assets should be increased");
 
         vault.claimAllocations();
         (requestedAssets, claimableAssets) = vault.allocationPendingAndClaimable();
@@ -319,7 +321,7 @@ contract MetaVaultTest is Test {
         strategyOne.deutilize(THOUSAND_6);
 
         uint256 idleAssets = vault.idleAssets();
-        assertEq(idleAssets, 4000000000, "idleAssets");
+        assertEq(idleAssets, 4_000_000_000, "idleAssets");
 
         uint256 balBefore = asset.balanceOf(user);
         uint256 totalAssetsBefore = vault.totalAssets();
@@ -328,7 +330,7 @@ contract MetaVaultTest is Test {
         uint256 balAfter = asset.balanceOf(user);
         uint256 totalAssetsAfter = vault.totalAssets();
         assertEq(balAfter - balBefore, 35 * THOUSAND_6 / 10, "user balance should be increased");
-        assertEq(totalAssetsBefore - totalAssetsAfter, 3500000000, "total assets should be decreased");
+        assertEq(totalAssetsBefore - totalAssetsAfter, 3_500_000_000, "total assets should be decreased");
     }
 
     function test_withdraw_whenIdleNotEnough_whenIdleFromCoreEnough() public afterAllocated afterPartiallyUtilized {
@@ -1898,7 +1900,7 @@ contract MetaVaultTest is Test {
         assets[1] = THOUSAND_6;
         vm.startPrank(curator);
         vm.expectEmit(true, true, false, false);
-        emit AllocationManager.UtilizationCostNotEnough(address(logVaultTwo), 999001, 499750);
+        emit AllocationManager.UtilizationCostNotEnough(address(logVaultTwo), 999_001, 499_750);
         vault.allocate(targets, assets);
         vm.stopPrank();
         assertEq(vault.reservedAllocationCost(), 0, "Reserved allocation cost should be 0");
@@ -2194,7 +2196,7 @@ contract MetaVaultTest is Test {
         assertEq(sharePriceAfterDeutilize, sharePriceBefore, "Share price should be the same after deutilize");
         (uint256 pending, uint256 claimable) = vault.allocationPendingAndClaimable();
         assertEq(pending, 0, "Pending should be 0");
-        assertEq(claimable, 1497503495, "Claimable should be amount");
+        assertEq(claimable, 1_497_503_495, "Claimable should be amount");
         uint256 assetBalanceBefore = asset.balanceOf(address(vault));
         vault.claimAllocations();
         uint256 assetBalanceAfter = asset.balanceOf(address(vault));
@@ -2253,4 +2255,5 @@ contract MetaVaultTest is Test {
         uint256 previewedAssets = vault.previewRedeem(shares);
         assertEq(previewedAssets, assets, "Previewed assets should be equal to amount");
     }
+
 }

@@ -4,10 +4,11 @@ pragma solidity ^0.8.13;
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
-import {VaultFactory} from "src/VaultFactory.sol";
 import {MetaVault} from "src/MetaVault.sol";
+import {VaultFactory} from "src/VaultFactory.sol";
 
 contract VaultFactoryTest is Test {
+
     VaultFactory public factory;
     address vaultImpl;
     address curator = makeAddr("curator");
@@ -54,4 +55,5 @@ contract VaultFactoryTest is Test {
         assertTrue(factory.getProxyConfig(proxyTwo).upgradeable);
         assertFalse(factory.getProxyConfig(proxyThree).upgradeable);
     }
+
 }

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.20;
 
-import {Test} from "forge-std/Test.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
+import {Test} from "forge-std/Test.sol";
 
 import {VaultAdapter} from "src/library/VaultAdapter.sol";
 
 contract MockLogarithmVault {
+
     uint256 public exitCost;
     uint256 public entryCost;
 
@@ -14,9 +15,11 @@ contract MockLogarithmVault {
         exitCost = _exitCost;
         entryCost = _entryCost;
     }
+
 }
 
 contract VaultAdapterTest is Test {
+
     address owner = makeAddr("owner");
 
     ERC20Mock asset;
@@ -99,4 +102,5 @@ contract VaultAdapterTest is Test {
         uint256 costOnTotal = VaultAdapter.costOnTotal(totalAssets, costBpsOrRate);
         assertEq(costOnTotal, costOnRaw);
     }
+
 }

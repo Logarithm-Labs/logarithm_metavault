@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
-import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
-import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
+import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 
 import {IMetaVault} from "src/interfaces/IMetaVault.sol";
 import {IPriorityProvider} from "src/interfaces/IPriorityProvider.sol";
@@ -13,6 +13,7 @@ import {IPriorityProvider} from "src/interfaces/IPriorityProvider.sol";
 /// @notice The factory allows permissionless creation of upgradeable or non-upgradeable proxy contracts and serves as a
 /// beacon for the upgradeable ones
 contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
+
     using Clones for address;
 
     /// @title ProxyConfig
@@ -41,9 +42,11 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
 
     error VF__BadQuery();
 
-    constructor(address vaultRegistry_, address implementation_, address initialOwner)
-        UpgradeableBeacon(implementation_, initialOwner)
-    {
+    constructor(
+        address vaultRegistry_,
+        address implementation_,
+        address initialOwner
+    ) UpgradeableBeacon(implementation_, initialOwner) {
         vaultRegistry = vaultRegistry_;
     }
 
@@ -96,7 +99,9 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
     /// @param proxy Address of the proxy to query
     ///
     /// @return config The proxy's configuration, including current implementation
-    function getProxyConfig(address proxy) external view returns (ProxyConfig memory config) {
+    function getProxyConfig(
+        address proxy
+    ) external view returns (ProxyConfig memory config) {
         config = proxyLookup[proxy];
         if (config.upgradeable) config.implementation = implementation();
     }
@@ -106,7 +111,9 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
     /// @param proxy Address to check
     ///
     /// @return True if the address is a proxy
-    function isProxy(address proxy) public view returns (bool) {
+    function isProxy(
+        address proxy
+    ) public view returns (bool) {
         return proxyLookup[proxy].implementation != address(0);
     }
 
@@ -115,7 +122,9 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
     /// @param account Address of withdrawal request owner
     ///
     /// @return True if the owner is the proxy by the factory
-    function isPrioritized(address account) external view returns (bool) {
+    function isPrioritized(
+        address account
+    ) external view returns (bool) {
         return isProxy(account);
     }
 
@@ -141,4 +150,5 @@ contract VaultFactory is UpgradeableBeacon, IPriorityProvider {
             list[i] = proxyList[start + i];
         }
     }
+
 }

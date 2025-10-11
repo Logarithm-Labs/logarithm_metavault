@@ -15,4 +15,41 @@ arbitrum_one = "${ARBITRUM_ONE_RPC_URL}"
 bnb_smart_chain = "${BSC_RPC_URL}"
 base = "${BASE_RPC_URL}"
 
+[fmt]
+# Line formatting
+line_length = 120
+tab_width = 4
+wrap_comments = true
+
+# Statement blocks formatting
+single_line_statement_blocks = "single"
+
+# Function header formatting
+multiline_func_header = "params_first"
+
+# Import organization
+sort_imports = true
+
+# Contract spacing
+contract_new_lines = true
+
+# Override spacing
+override_spacing = true
+
+# Bracket spacing
+bracket_spacing = false
+
+# Type formatting
+int_types = "long"
+
+# Quote style
+quote_style = "double"
+
+# Number formatting
+number_underscore = "thousands"
+hex_underscore = "remove"
+
+# Files to ignore during formatting
+ignore = ["script/", "test/"]
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {ManagedVault} from "@managed_basis/vault/ManagedVault.sol";
+import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {VaultAdapter} from "./library/VaultAdapter.sol";
 
@@ -13,6 +13,7 @@ import {VaultAdapter} from "./library/VaultAdapter.sol";
 /// @dev This contract is used to charge a cost for deposits and withdrawals
 /// @dev The cost is charged in the form of a percentage of the total assets
 abstract contract CostAwareManagedVault is ManagedVault {
+
     using Math for uint256;
 
     uint256 private constant _MAX_ENTRY_COST_BPS = 100; // 1%
@@ -40,10 +41,10 @@ abstract contract CostAwareManagedVault is ManagedVault {
         }
     }
 
-    function _setEntryCost(uint256 costBps) internal {
-        if (costBps > _MAX_ENTRY_COST_BPS) {
-            revert MVC__EntryCostExceedMaxLimit();
-        }
+    function _setEntryCost(
+        uint256 costBps
+    ) internal {
+        if (costBps > _MAX_ENTRY_COST_BPS) revert MVC__EntryCostExceedMaxLimit();
         _getManagedVaultWithCostStorage().entryCostBps = costBps;
         emit EntryCostUpdated(_msgSender(), costBps);
     }
@@ -53,7 +54,9 @@ abstract contract CostAwareManagedVault is ManagedVault {
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Process the cost
-    function _processCost(uint256 cost) internal virtual;
+    function _processCost(
+        uint256 cost
+    ) internal virtual;
 
     /*//////////////////////////////////////////////////////////////
                             ADMIN LOGIC
@@ -61,7 +64,9 @@ abstract contract CostAwareManagedVault is ManagedVault {
 
     /// @notice Set the entry cost
     /// @param costBps The entry cost in basis points
-    function setEntryCost(uint256 costBps) external onlyOwner {
+    function setEntryCost(
+        uint256 costBps
+    ) external onlyOwner {
         _setEntryCost(costBps);
     }
 
@@ -70,18 +75,24 @@ abstract contract CostAwareManagedVault is ManagedVault {
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc ERC4626Upgradeable
-    function previewDeposit(uint256 assets) public view virtual override returns (uint256) {
+    function previewDeposit(
+        uint256 assets
+    ) public view virtual override returns (uint256) {
         (uint256 shares,) = _previewDepositWithCost(assets);
         return shares;
     }
 
     /// @inheritdoc ERC4626Upgradeable
-    function previewMint(uint256 shares) public view virtual override returns (uint256) {
+    function previewMint(
+        uint256 shares
+    ) public view virtual override returns (uint256) {
         (uint256 assets,) = _previewMintWithCost(shares);
         return assets;
     }
 
-    function _previewDepositWithCost(uint256 assets) private view returns (uint256 shares, uint256 cost) {
+    function _previewDepositWithCost(
+        uint256 assets
+    ) private view returns (uint256 shares, uint256 cost) {
         cost = VaultAdapter.costOnTotal(assets, entryCostBps());
         assets -= cost;
 
@@ -89,7 +100,9 @@ abstract contract CostAwareManagedVault is ManagedVault {
         return (shares, cost);
     }
 
-    function _previewMintWithCost(uint256 shares) private view returns (uint256 assets, uint256 cost) {
+    function _previewMintWithCost(
+        uint256 shares
+    ) private view returns (uint256 assets, uint256 cost) {
         assets = _convertToAssets(shares, Math.Rounding.Ceil);
         cost = VaultAdapter.costOnRaw(assets, entryCostBps());
         assets += cost;
@@ -99,9 +112,7 @@ abstract contract CostAwareManagedVault is ManagedVault {
     /// @inheritdoc ERC4626Upgradeable
     function deposit(uint256 assets, address receiver) public override returns (uint256) {
         uint256 maxAssets = maxDeposit(receiver);
-        if (assets > maxAssets) {
-            revert ERC4626ExceededMaxDeposit(receiver, assets, maxAssets);
-        }
+        if (assets > maxAssets) revert ERC4626ExceededMaxDeposit(receiver, assets, maxAssets);
 
         (uint256 shares, uint256 cost) = _previewDepositWithCost(assets);
 
@@ -115,9 +126,7 @@ abstract contract CostAwareManagedVault is ManagedVault {
     /// @inheritdoc ERC4626Upgradeable
     function mint(uint256 shares, address receiver) public override returns (uint256) {
         uint256 maxShares = maxMint(receiver);
-        if (shares > maxShares) {
-            revert ERC4626ExceededMaxMint(receiver, shares, maxShares);
-        }
+        if (shares > maxShares) revert ERC4626ExceededMaxMint(receiver, shares, maxShares);
 
         (uint256 assets, uint256 cost) = _previewMintWithCost(shares);
 
@@ -135,4 +144,5 @@ abstract contract CostAwareManagedVault is ManagedVault {
     function entryCostBps() public view returns (uint256) {
         return _getManagedVaultWithCostStorage().entryCostBps;
     }
+
 }

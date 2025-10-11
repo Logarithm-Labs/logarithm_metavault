@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ILogarithmVault} from "../interfaces/ILogarithmVault.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 library VaultAdapter {
+
     using Math for uint256;
 
     address constant TOKEMAK_VAULT = 0x9c6864105AEC23388C89600046213a44C384c831;
@@ -16,12 +17,15 @@ library VaultAdapter {
         return ILogarithmVault(target).deposit(assets, receiver);
     }
 
-    /// @notice Request to withdraw assets from a target vault. Falls back to synchronous withdraw if async is unsupported.
+    /// @notice Request to withdraw assets from a target vault. Falls back to synchronous withdraw if async is
+    /// unsupported.
     /// @return bytes32(0) if fulfilled synchronously; non-zero for async requests.
-    function tryRequestWithdraw(address target, uint256 assets, address receiver, address owner)
-        internal
-        returns (bytes32)
-    {
+    function tryRequestWithdraw(
+        address target,
+        uint256 assets,
+        address receiver,
+        address owner
+    ) internal returns (bytes32) {
         // Prefer async interface if supported
         try ILogarithmVault(target).requestWithdraw(assets, receiver, owner) returns (bytes32 key) {
             return key;
@@ -34,10 +38,12 @@ library VaultAdapter {
 
     /// @notice Request to redeem shares from a target vault. Falls back to synchronous redeem if async is unsupported.
     /// @return bytes32(0) if fulfilled synchronously; non-zero for async requests.
-    function tryRequestRedeem(address target, uint256 shares, address receiver, address owner)
-        internal
-        returns (bytes32)
-    {
+    function tryRequestRedeem(
+        address target,
+        uint256 shares,
+        address receiver,
+        address owner
+    ) internal returns (bytes32) {
         // Prefer async interface if supported
         try ILogarithmVault(target).requestRedeem(shares, receiver, owner) returns (bytes32 key) {
             return key;
@@ -108,7 +114,9 @@ library VaultAdapter {
     }
 
     /// @notice Returns the asset token address for the target vault.
-    function asset(address target) internal view returns (address) {
+    function asset(
+        address target
+    ) internal view returns (address) {
         return ILogarithmVault(target).asset();
     }
 
@@ -138,7 +146,9 @@ library VaultAdapter {
 
     /// @notice Returns the idle assets available in a target vault.
     /// @dev Returns 0 if the target doesn't support idle assets (e.g., standard ERC4626 vaults).
-    function tryIdleAssets(address target) internal view returns (uint256) {
+    function tryIdleAssets(
+        address target
+    ) internal view returns (uint256) {
         try ILogarithmVault(target).idleAssets() returns (uint256 idleAssets) {
             return idleAssets;
         } catch {
@@ -149,7 +159,9 @@ library VaultAdapter {
 
     /// @notice Returns the entry cost for a target vault.
     /// @dev Returns 0 if the target doesn't support entry costs (e.g., standard ERC4626 vaults).
-    function tryEntryCost(address target) internal view returns (uint256) {
+    function tryEntryCost(
+        address target
+    ) internal view returns (uint256) {
         try ILogarithmVault(target).entryCost() returns (uint256 entryCost) {
             return entryCost;
         } catch {
@@ -160,7 +172,9 @@ library VaultAdapter {
 
     /// @notice Returns the exit cost for a target vault.
     /// @dev Returns 0 if the target doesn't support exit costs (e.g., standard ERC4626 vaults).
-    function tryExitCost(address target) internal view returns (uint256) {
+    function tryExitCost(
+        address target
+    ) internal view returns (uint256) {
         try ILogarithmVault(target).exitCost() returns (uint256 exitCost) {
             return exitCost;
         } catch {
@@ -240,4 +254,5 @@ library VaultAdapter {
             }
         }
     }
+
 }

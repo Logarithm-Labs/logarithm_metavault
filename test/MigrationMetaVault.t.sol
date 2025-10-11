@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Test} from "forge-std/Test.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {LogarithmVault} from "@managed_basis/vault/LogarithmVault.sol";
-import {MockStrategy} from "test/mock/MockStrategy.sol";
-import {VaultRegistry} from "src/VaultRegistry.sol";
-import {MigrationMetaVault} from "src/MigrationMetaVault.sol";
-import {MetaVault} from "src/MetaVault.sol";
-import {VaultFactory} from "src/VaultFactory.sol";
+import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Test} from "forge-std/Test.sol";
+
 import {DeployHelper} from "script/utils/DeployHelper.sol";
+import {MetaVault} from "src/MetaVault.sol";
+import {MigrationMetaVault} from "src/MigrationMetaVault.sol";
+import {VaultFactory} from "src/VaultFactory.sol";
+import {VaultRegistry} from "src/VaultRegistry.sol";
+import {MockStrategy} from "test/mock/MockStrategy.sol";
 
 contract MigrationMetaVaultTest is Test {
+
     uint256 constant THOUSAND_6 = 1_000_000_000;
     address owner = makeAddr("owner");
     address curator = makeAddr("curator");
@@ -435,7 +437,8 @@ contract MigrationMetaVaultTest is Test {
         );
 
         // Additional verification: check that the user's total asset value hasn't decreased
-        uint256 userTotalAssetValueBefore = logVaultOne.previewRedeem(originalShares); // User's original target vault shares
+        uint256 userTotalAssetValueBefore = logVaultOne.previewRedeem(originalShares); // User's original target vault
+            // shares
         uint256 userTotalAssetValueAfter = vault.previewRedeem(vault.balanceOf(user)); // User's MetaVault shares
 
         // User should have at least the same total asset value (allowing for rounding)
@@ -500,4 +503,5 @@ contract MigrationMetaVaultTest is Test {
         uint256 expectedVaultShares = logVaultOne.balanceOf(address(vault));
         assertGe(expectedVaultShares, targetShares, "Vault should hold at least the migrated shares");
     }
+
 }

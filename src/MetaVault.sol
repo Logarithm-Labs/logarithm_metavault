@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
+import {NoncesUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/NoncesUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {NoncesUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/NoncesUpgradeable.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-import {CostAwareManagedVault} from "./CostAwareManagedVault.sol";
 import {AllocationManager} from "./AllocationManager.sol";
-import {VaultAdapter} from "./library/VaultAdapter.sol";
+import {CostAwareManagedVault} from "./CostAwareManagedVault.sol";
+
 import {IVaultRegistry} from "./interfaces/IVaultRegistry.sol";
+import {VaultAdapter} from "./library/VaultAdapter.sol";
 
 /// @title MetaVault
 /// @author Logarithm Labs
@@ -21,6 +22,7 @@ import {IVaultRegistry} from "./interfaces/IVaultRegistry.sol";
 /// @dev This smart contract is for allocating/deallocating assets to/from the vaults
 /// @dev For the target vaults, they are LogarithmVaults (Async-one) and standard ERC4626 vaults
 contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, NoncesUpgradeable {
+
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using SafeERC20 for IERC20;
@@ -120,9 +122,7 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     /// @dev This function is used to prevent any further deposits
     /// @dev Redeem all shares from the logarithm vaults
     function shutdown() external {
-        if (_msgSender() != vaultRegistry()) {
-            revert MV__InvalidCaller();
-        }
+        if (_msgSender() != vaultRegistry()) revert MV__InvalidCaller();
         _getMetaVaultStorage().shutdown = true;
 
         // redeem all shares from the logarithm vaults
@@ -144,19 +144,25 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc ERC4626Upgradeable
-    function maxDeposit(address receiver) public view virtual override returns (uint256) {
+    function maxDeposit(
+        address receiver
+    ) public view virtual override returns (uint256) {
         return isShutdown() ? 0 : super.maxDeposit(receiver);
     }
 
     /// @inheritdoc ERC4626Upgradeable
-    function maxMint(address receiver) public view virtual override returns (uint256) {
+    function maxMint(
+        address receiver
+    ) public view virtual override returns (uint256) {
         return isShutdown() ? 0 : super.maxMint(receiver);
     }
 
     /// @dev This is limited by the idle assets (including target vault idle assets).
     ///
     /// @inheritdoc ERC4626Upgradeable
-    function maxWithdraw(address owner) public view virtual override returns (uint256) {
+    function maxWithdraw(
+        address owner
+    ) public view virtual override returns (uint256) {
         uint256 assets = super.maxWithdraw(owner);
         uint256 totalIdleAssets = getTotalIdleAssets();
         return Math.min(assets, totalIdleAssets);
@@ -165,7 +171,9 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     /// @dev This is limited by the idle assets (including target vault idle assets).
     ///
     /// @inheritdoc ERC4626Upgradeable
-    function maxRedeem(address owner) public view virtual override returns (uint256) {
+    function maxRedeem(
+        address owner
+    ) public view virtual override returns (uint256) {
         uint256 shares = super.maxRedeem(owner);
         // should be rounded floor so that the derived assets can't exceed total idle
         uint256 redeemableShares = _convertToShares(getTotalIdleAssets(), Math.Rounding.Floor);
@@ -174,35 +182,37 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
 
     /// @inheritdoc ERC4626Upgradeable
     function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal virtual override {
-        if (shares == 0) {
-            revert MV__ZeroShares();
-        }
+        if (shares == 0) revert MV__ZeroShares();
         super._deposit(caller, receiver, assets, shares);
     }
 
     /// @inheritdoc ERC4626Upgradeable
-    function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
-        internal
-        virtual
-        override
-    {
+    function _withdraw(
+        address caller,
+        address receiver,
+        address owner,
+        uint256 assets,
+        uint256 shares
+    ) internal virtual override {
         _claimAllocations();
         uint256 idleAssetsAvailable = idleAssets();
-        if (idleAssetsAvailable < assets) {
-            _withdrawFromTargetIdleAssets(assets - idleAssetsAvailable);
-        }
+        if (idleAssetsAvailable < assets) _withdrawFromTargetIdleAssets(assets - idleAssetsAvailable);
         super._withdraw(caller, receiver, owner, assets, shares);
     }
 
     /// @notice Returns the maximum amount of Vault shares that can be
     /// requested to redeem from the owner balance in the Vault,
     /// through a requestRedeem call.
-    function maxRequestRedeem(address owner) public view virtual returns (uint256) {
+    function maxRequestRedeem(
+        address owner
+    ) public view virtual returns (uint256) {
         return balanceOf(owner);
     }
 
     /// @inheritdoc IERC4626
-    function previewWithdraw(uint256 assets) public view virtual override returns (uint256) {
+    function previewWithdraw(
+        uint256 assets
+    ) public view virtual override returns (uint256) {
         uint256 totalIdleAssets = getTotalIdleAssets();
         uint256 assetsToWithdraw = Math.min(assets, totalIdleAssets);
         uint256 assetsToRequest = assets - assetsToWithdraw;
@@ -212,7 +222,9 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     }
 
     /// @inheritdoc IERC4626
-    function previewRedeem(uint256 shares) public view virtual override returns (uint256) {
+    function previewRedeem(
+        uint256 shares
+    ) public view virtual override returns (uint256) {
         uint256 assets = _convertToAssets(shares, Math.Rounding.Floor);
         uint256 totalIdleAssets = getTotalIdleAssets();
         uint256 assetsToWithdraw = Math.min(assets, totalIdleAssets);
@@ -235,15 +247,14 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     /// @return The withdraw key that will be used in the claim function.
     /// None zero bytes32 value if the requested asset amount is bigger than the idle assets,
     /// otherwise zero bytes32 value.
-    function requestRedeem(uint256 shares, address receiver, address owner, uint256 minAssetsToReceive)
-        public
-        virtual
-        returns (bytes32)
-    {
+    function requestRedeem(
+        uint256 shares,
+        address receiver,
+        address owner,
+        uint256 minAssetsToReceive
+    ) public virtual returns (bytes32) {
         uint256 maxRequestShares = maxRequestRedeem(owner);
-        if (shares > maxRequestShares) {
-            revert MV__ExceededMaxRequestRedeem(owner, shares, maxRequestShares);
-        }
+        if (shares > maxRequestShares) revert MV__ExceededMaxRequestRedeem(owner, shares, maxRequestShares);
 
         uint256 assets = previewRedeem(shares);
 
@@ -261,10 +272,12 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         return withdrawKey;
     }
 
-    function _processWithdrawRequest(uint256 assets, uint256 shares, address receiver, address owner)
-        internal
-        returns (bytes32 withdrawKey, uint256 executedAssets)
-    {
+    function _processWithdrawRequest(
+        uint256 assets,
+        uint256 shares,
+        address receiver,
+        address owner
+    ) internal returns (bytes32 withdrawKey, uint256 executedAssets) {
         uint256 maxAssets = maxWithdraw(owner);
         uint256 assetsToWithdraw = Math.min(assets, maxAssets);
         // always assetsToWithdraw <= assets
@@ -307,9 +320,7 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     ) internal virtual returns (bytes32) {
         _updateHwmWithdraw(sharesToRequest);
 
-        if (caller != owner) {
-            _spendAllowance(owner, caller, sharesToRequest);
-        }
+        if (caller != owner) _spendAllowance(owner, caller, sharesToRequest);
         _burn(owner, sharesToRequest);
 
         MetaVaultStorage storage $ = _getMetaVaultStorage();
@@ -356,14 +367,16 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     }
 
     /// @notice Claim withdrawable assets
-    function claim(bytes32 withdrawKey) public returns (uint256) {
-        if (!isClaimable(withdrawKey)) {
-            revert MV__NotClaimable();
-        }
+    function claim(
+        bytes32 withdrawKey
+    ) public returns (uint256) {
+        if (!isClaimable(withdrawKey)) revert MV__NotClaimable();
         return _claim(withdrawKey);
     }
 
-    function _claim(bytes32 withdrawKey) internal returns (uint256) {
+    function _claim(
+        bytes32 withdrawKey
+    ) internal returns (uint256) {
         _claimAllocations();
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         WithdrawRequest memory withdrawRequest = $.withdrawRequests[withdrawKey];
@@ -379,7 +392,9 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Reserve allocation cost
-    function _processCost(uint256 cost) internal virtual override {
+    function _processCost(
+        uint256 cost
+    ) internal virtual override {
         if (cost > 0) _reserveAllocationCost(cost);
     }
 
@@ -393,9 +408,7 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         uint256 _idleAssets = idleAssets();
         uint256 assetsAllocated = _allocateBatch(targets, assets);
 
-        if (assetsAllocated > _idleAssets) {
-            revert MV__OverAllocation();
-        }
+        if (assetsAllocated > _idleAssets) revert MV__OverAllocation();
     }
 
     /// @notice Withdraw assets from the logarithm vaults
@@ -465,7 +478,9 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         return keccak256(abi.encodePacked(address(this), user, nonce));
     }
 
-    function isClaimable(bytes32 withdrawKey) public view returns (bool) {
+    function isClaimable(
+        bytes32 withdrawKey
+    ) public view returns (bool) {
         uint256 assetBalance = IERC20(asset()).balanceOf(address(this));
         (, uint256 claimableAssets) = allocationPendingAndClaimable();
         WithdrawRequest memory withdrawRequest = withdrawRequests(withdrawKey);
@@ -477,7 +492,9 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         return withdrawRequest.cumulativeRequestedWithdrawalAssets <= cumulativeWithdrawnAssets() + directlyAvailable;
     }
 
-    function isClaimed(bytes32 withdrawKey) public view returns (bool) {
+    function isClaimed(
+        bytes32 withdrawKey
+    ) public view returns (bool) {
         return _getMetaVaultStorage().withdrawRequests[withdrawKey].isClaimed;
     }
 
@@ -486,9 +503,7 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     //////////////////////////////////////////////////////////////*/
 
     function _requireNotShutdown() internal view {
-        if (isShutdown()) {
-            revert MV__Shutdown();
-        }
+        if (isShutdown()) revert MV__Shutdown();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -500,12 +515,12 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     }
 
     /// @dev validate if target is registered
-    function _validateTarget(address target) internal view virtual override {
+    function _validateTarget(
+        address target
+    ) internal view virtual override {
         address _vaultRegistry = vaultRegistry();
         if (_vaultRegistry != address(0)) {
-            if (!IVaultRegistry(_vaultRegistry).isApproved(target)) {
-                revert MV__InvalidTargetAllocation();
-            }
+            if (!IVaultRegistry(_vaultRegistry).isApproved(target)) revert MV__InvalidTargetAllocation();
         }
     }
 
@@ -529,7 +544,9 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         return $.cumulativeWithdrawnAssets;
     }
 
-    function withdrawRequests(bytes32 withdrawKey) public view returns (WithdrawRequest memory) {
+    function withdrawRequests(
+        bytes32 withdrawKey
+    ) public view returns (WithdrawRequest memory) {
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         return $.withdrawRequests[withdrawKey];
     }
@@ -538,4 +555,5 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         MetaVaultStorage storage $ = _getMetaVaultStorage();
         return $.shutdown;
     }
+
 }

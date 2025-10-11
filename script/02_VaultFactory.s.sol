@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import {Script} from "forge-std/Script.sol";
-import {VaultFactory} from "../src/VaultFactory.sol";
 import {MetaVault} from "../src/MetaVault.sol";
 import {MigrationMetaVault} from "../src/MigrationMetaVault.sol";
-import {BaseAddress, ArbitrumAddress} from "./utils/Address.sol";
+import {VaultFactory} from "../src/VaultFactory.sol";
+import {ArbitrumAddress, BaseAddress} from "./utils/Address.sol";
+import {Script} from "forge-std/Script.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 address constant OWNER = 0x2aDF216832582B2826C25914A4a7b565AEBb180D;
 address constant CURATOR = 0xF600833BDB1150442B4d355d52653B3896140827;
 
 contract DeployVaultFactoryBase is Script {
+
     function run() public {
         // uint256 privateKey = vm.envUint("PRIVATE_KEY");
         vm.createSelectFork("base");
@@ -23,9 +24,11 @@ contract DeployVaultFactoryBase is Script {
         console.log("VaultFactory deployed at:", address(factory));
         console.log("Vault deployed at:", vault);
     }
+
 }
 
 contract UpgradeMetaVaultBase is Script {
+
     function run() public {
         uint256 privateKey = vm.envUint("PRIVATE_KEY");
         vm.createSelectFork("base");
@@ -34,9 +37,11 @@ contract UpgradeMetaVaultBase is Script {
         factory.upgradeTo(address(new MetaVault()));
         vm.stopBroadcast();
     }
+
 }
 
 contract DeployVaultFactoryArbitrum is Script {
+
     function run() public {
         uint256 privateKey = vm.envUint("PRIVATE_KEY");
         vm.createSelectFork("arbitrum_one");
@@ -46,9 +51,11 @@ contract DeployVaultFactoryArbitrum is Script {
         factory.createVault(true, ArbitrumAddress.USDC, CURATOR, "Tal Vault", "TV");
         vm.stopBroadcast();
     }
+
 }
 
 contract UpgradeMigrationMetaVaultArbitrum is Script {
+
     function run() public {
         uint256 privateKey = vm.envUint("PRIVATE_KEY");
         vm.createSelectFork("arbitrum_one");
@@ -57,4 +64,5 @@ contract UpgradeMigrationMetaVaultArbitrum is Script {
         factory.upgradeTo(address(new MigrationMetaVault()));
         vm.stopBroadcast();
     }
+
 }
