@@ -17,7 +17,7 @@ contract DeployVaultFactoryBase is Script {
         vm.createSelectFork("base");
         vm.startBroadcast( /* privateKey */ );
         VaultFactory factory = new VaultFactory(BaseAddress.VAULT_REGISTRY, address(new MetaVault()), OWNER);
-        address vault = factory.createVault(true, BaseAddress.USDC, "ACP USDC Hive Vault", "acpUSDC");
+        address vault = factory.createVault(true, BaseAddress.USDC, CURATOR, "ACP USDC Hive Vault", "acpUSDC");
         vm.stopBroadcast();
 
         console.log("VaultFactory deployed at:", address(factory));
