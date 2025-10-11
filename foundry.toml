@@ -50,6 +50,6 @@ number_underscore = "thousands"
 hex_underscore = "remove"
 
 # Files to ignore during formatting
-ignore = ["script/", "test/"]
+ignore = ["lib/", "script/"]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
