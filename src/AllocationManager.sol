@@ -1,0 +1,473 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+
+import {VaultAdapter} from "./library/VaultAdapter.sol";
+
+/// @title AllocationManager
+/// @notice Generalized allocation/deallocation/claim helper for managing positions across heterogeneous vaults
+/// @dev Supports both standard ERC4626 and semi-async vaults implementing ISemiAsyncRedeemVault
+abstract contract AllocationManager {
+
+    using EnumerableSet for EnumerableSet.AddressSet;
+    using EnumerableSet for EnumerableSet.Bytes32Set;
+    using SafeERC20 for IERC20;
+    using Math for uint256;
+
+    /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    error AM__InvalidInputLength();
+
+    /*//////////////////////////////////////////////////////////////
+                               EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    event Allocated(address indexed target, uint256 assets, uint256 shares, uint256 allocationCost);
+    event AllocationWithdrawn(address indexed target, address indexed receiver, uint256 assets, bytes32 withdrawKey);
+    event AllocationRedeemed(address indexed target, uint256 shares, uint256 assets, bytes32 withdrawKey);
+    event UtilizationCostNotEnough(address indexed target, uint256 required, uint256 available);
+    event UtilizationCostCharged(address indexed target, uint256 charged);
+
+    /*//////////////////////////////////////////////////////////////
+                                STORAGE
+    //////////////////////////////////////////////////////////////*/
+
+    struct AllocationStorage {
+        EnumerableSet.AddressSet allocatedTargets;
+        EnumerableSet.AddressSet claimableTargets;
+        mapping(address target => EnumerableSet.Bytes32Set) withdrawKeysByTarget;
+        // Track requested asset amounts per target/key for accounting
+        mapping(address target => mapping(bytes32 key => uint256 assets)) requestedAssetsByKey;
+        uint256 reservedAllocationCost;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("logarithm.storage.AllocationManager")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant ALLOCATION_STORAGE_LOCATION =
+        0xfebea8c17ed7d235908df1841c550752fa884affd713fb9d9fb47bc0b16bc700;
+
+    function _getAllocationStorage() private pure returns (AllocationStorage storage $) {
+        assembly {
+            $.slot := ALLOCATION_STORAGE_LOCATION
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                               ABSTRACTS
+    //////////////////////////////////////////////////////////////*/
+
+    function _allocationAsset() internal view virtual returns (address);
+    function _validateTarget(address target) internal view virtual;
+
+    /*//////////////////////////////////////////////////////////////
+                               ALLOCATE
+    //////////////////////////////////////////////////////////////*/
+
+    function _allocate(address target, uint256 assets) internal virtual {
+        if (assets == 0) return;
+        _validateTarget(target);
+        IERC20(_allocationAsset()).forceApprove(target, assets);
+        uint256 shares = VaultAdapter.deposit(target, assets, address(this));
+        _addAllocatedTarget(target);
+        uint256 assetsAfter = VaultAdapter.convertToAssets(target, shares);
+        uint256 allocationCost = assets > assetsAfter ? (assets - assetsAfter) : 0;
+        _depleteAllocationCost(target, allocationCost);
+
+        emit Allocated(target, assets, shares, allocationCost);
+    }
+
+    function _reserveAllocationCost(uint256 amount) internal {
+        _getAllocationStorage().reservedAllocationCost += amount;
+    }
+
+    function _depleteAllocationCost(address target, uint256 cost) internal {
+        if (cost == 0) return;
+        uint256 currentReserved = _getAllocationStorage().reservedAllocationCost;
+        if (cost > currentReserved) {
+            _getAllocationStorage().reservedAllocationCost = 0;
+            emit UtilizationCostNotEnough(target, cost, currentReserved);
+        } else {
+            _getAllocationStorage().reservedAllocationCost = currentReserved - cost;
+            emit UtilizationCostCharged(target, cost);
+        }
+    }
+
+    function _allocateBatch(
+        address[] memory targets,
+        uint256[] memory assets
+    )
+        internal
+        virtual
+        returns (uint256 totalAssets)
+    {
+        uint256 len = targets.length;
+        if (assets.length != len) revert AM__InvalidInputLength();
+        for (uint256 i; i < len;) {
+            _allocate(targets[i], assets[i]);
+            unchecked {
+                totalAssets += assets[i];
+                ++i;
+            }
+        }
+        return totalAssets;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                         DE-ALLOCATE (WITHDRAW/REDEEM)
+    //////////////////////////////////////////////////////////////*/
+
+    function _withdrawAllocation(address target, uint256 assets, address receiver) internal virtual {
+        if (assets == 0) return;
+        address _asset = _allocationAsset();
+        uint256 beforeBal = IERC20(_asset).balanceOf(receiver);
+        bytes32 key = VaultAdapter.tryRequestWithdraw(target, assets, receiver, address(this));
+        uint256 afterBal = IERC20(_asset).balanceOf(receiver);
+        uint256 immediate = afterBal > beforeBal ? (afterBal - beforeBal) : 0;
+        uint256 pending = assets > immediate ? (assets - immediate) : 0;
+        _addWithdrawKey(target, key, pending);
+        _maybePruneAllocated(target);
+        emit AllocationWithdrawn(target, receiver, assets, key);
+    }
+
+    function _redeemAllocation(
+        address target,
+        uint256 shares,
+        address receiver
+    )
+        internal
+        virtual
+        returns (uint256 immediate, uint256 pending)
+    {
+        if (shares == 0) return (immediate, pending);
+        uint256 previewAssets = VaultAdapter.tryPreviewAssets(target, shares);
+        address _asset = _allocationAsset();
+        uint256 beforeBal = IERC20(_asset).balanceOf(receiver);
+        bytes32 key = VaultAdapter.tryRequestRedeem(target, shares, receiver, address(this));
+        uint256 afterBal = IERC20(_asset).balanceOf(receiver);
+        immediate = afterBal > beforeBal ? (afterBal - beforeBal) : 0;
+        if (key != bytes32(0)) {
+            pending = previewAssets > immediate ? (previewAssets - immediate) : 0;
+            _addWithdrawKey(target, key, pending);
+        }
+        _maybePruneAllocated(target);
+        emit AllocationRedeemed(target, shares, previewAssets, key);
+        return (immediate, pending);
+    }
+
+    function _withdrawAllocationBatch(
+        address[] memory targets,
+        uint256[] memory assets,
+        address receiver
+    )
+        internal
+        virtual
+    {
+        uint256 len = targets.length;
+        if (assets.length != len) revert AM__InvalidInputLength();
+        for (uint256 i; i < len;) {
+            _withdrawAllocation(targets[i], assets[i], receiver);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _redeemAllocationBatch(
+        address[] memory targets,
+        uint256[] memory shares,
+        address receiver
+    )
+        internal
+        virtual
+        returns (uint256 totalImmediate, uint256 totalPending)
+    {
+        uint256 len = targets.length;
+        if (shares.length != len) revert AM__InvalidInputLength();
+        for (uint256 i; i < len;) {
+            (uint256 immediate, uint256 pending) = _redeemAllocation(targets[i], shares[i], receiver);
+            unchecked {
+                totalImmediate += immediate;
+                totalPending += pending;
+                ++i;
+            }
+        }
+        return (totalImmediate, totalPending);
+    }
+
+    /// @dev Withdraw from target vault idle assets
+    function _withdrawFromTargetIdleAssets(uint256 assetsToWithdraw) internal {
+        if (assetsToWithdraw == 0) return;
+
+        // Withdraw from target vault idle assets
+        address[] memory targets = allocatedTargets();
+        uint256 len = targets.length;
+        for (uint256 i; i < len && assetsToWithdraw > 0;) {
+            address target = targets[i];
+            // Check if target vault has idle assets that can be withdrawn immediately
+            uint256 targetIdleAssets = VaultAdapter.tryIdleAssets(target);
+            if (targetIdleAssets > 0) {
+                uint256 targetShares = VaultAdapter.shareBalanceOf(target, address(this));
+                uint256 targetAssets = VaultAdapter.convertToAssets(target, targetShares);
+                uint256 availableAssets = Math.min(targetAssets, targetIdleAssets);
+                uint256 assetsToWithdrawFromTarget = Math.min(availableAssets, assetsToWithdraw);
+                if (assetsToWithdrawFromTarget > 0) {
+                    // Withdraw idle assets immediately from target vault
+                    _withdrawAllocation(target, assetsToWithdrawFromTarget, address(this));
+                    unchecked {
+                        assetsToWithdraw -= assetsToWithdrawFromTarget;
+                    }
+                }
+            }
+            unchecked {
+                i++;
+            }
+        }
+    }
+
+    /// @dev Withdraw from allocations in the ascending order of exit cost
+    function _withdrawFromAllocations(uint256 assetsToWithdraw)
+        internal
+        returns (uint256 totalImmediate, uint256 totalPending)
+    {
+        if (assetsToWithdraw == 0) return (totalImmediate, totalPending);
+
+        uint256 remainingAssets = assetsToWithdraw;
+
+        address[] memory targets = allocatedTargets();
+        uint256 length = targets.length;
+        // Sort targets by exit cost (ascending order)
+        VaultAdapter.insertionSortTargetsByExitCost(targets, length, true);
+
+        for (uint256 i; i < length && remainingAssets > 0;) {
+            address target = targets[i];
+            uint256 targetShares = VaultAdapter.shareBalanceOf(target, address(this));
+
+            if (targetShares > 0) {
+                // Calculate how much we can withdraw from this target's shares
+                uint256 targetAssets = VaultAdapter.tryPreviewAssets(target, targetShares);
+                uint256 assetsToRequest = Math.min(remainingAssets, targetAssets);
+                uint256 sharesToRequest = assetsToRequest < targetAssets
+                    ? targetShares.mulDiv(assetsToRequest, targetAssets, Math.Rounding.Ceil)
+                    : targetShares;
+                (uint256 immediate, uint256 pending) = _redeemAllocation(target, sharesToRequest, address(this));
+                unchecked {
+                    remainingAssets -= assetsToRequest;
+                    totalImmediate += immediate;
+                    totalPending += pending;
+                }
+            } else {
+                _pruneAllocated(target);
+            }
+            unchecked {
+                i++;
+            }
+        }
+        return (totalImmediate, totalPending);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                               CLAIM
+    //////////////////////////////////////////////////////////////*/
+
+    function _claimAllocations() internal virtual {
+        AllocationStorage storage $ = _getAllocationStorage();
+        address[] memory targets = $.claimableTargets.values();
+        uint256 len = targets.length;
+        for (uint256 i; i < len;) {
+            address target = targets[i];
+            bytes32[] memory keys = $.withdrawKeysByTarget[target].values();
+            uint256 keyLen = keys.length;
+            bool allDone = true;
+            for (uint256 j; j < keyLen;) {
+                bytes32 key = keys[j];
+                bool isClaimable = VaultAdapter.tryIsClaimable(target, key);
+                if (isClaimable) {
+                    VaultAdapter.claim(target, key);
+                    _removeWithdrawKey(target, key);
+                } else if (VaultAdapter.tryIsClaimed(target, key)) {
+                    // Check whether the request was claimed externally (defensive)
+                    _removeWithdrawKey(target, key);
+                } else {
+                    allDone = false;
+                }
+                unchecked {
+                    ++j;
+                }
+            }
+            if (allDone) $.claimableTargets.remove(target);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                               VIEWS
+    //////////////////////////////////////////////////////////////*/
+
+    function reservedAllocationCost() public view returns (uint256) {
+        return _getAllocationStorage().reservedAllocationCost;
+    }
+
+    function allocatedTargets() public view returns (address[] memory) {
+        return _getAllocationStorage().allocatedTargets.values();
+    }
+
+    function claimableTargets() public view returns (address[] memory) {
+        return _getAllocationStorage().claimableTargets.values();
+    }
+
+    function withdrawKeysFor(address target) public view returns (bytes32[] memory) {
+        return _getAllocationStorage().withdrawKeysByTarget[target].values();
+    }
+
+    function allocatedAssets() public view returns (uint256 assets) {
+        address[] memory targets = allocatedTargets();
+        uint256 len = targets.length;
+        for (uint256 i; i < len;) {
+            address target = targets[i];
+            assets += allocatedAssetsFor(target);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function allocatedAssetsFor(address target) public view returns (uint256 assets) {
+        uint256 shares = VaultAdapter.shareBalanceOf(target, address(this));
+        if (shares > 0) assets = VaultAdapter.convertToAssets(target, shares);
+        return assets;
+    }
+
+    /// @notice Totals across outstanding withdraw keys tracked by this manager
+    /// @return pendingRequested sum of requested-but-not-yet-claimable assets
+    /// @return claimable sum of requested-and-claimable assets
+    function allocationPendingAndClaimable() public view returns (uint256 pendingRequested, uint256 claimable) {
+        AllocationStorage storage $ = _getAllocationStorage();
+        address[] memory targets = $.claimableTargets.values();
+        uint256 len = targets.length;
+        for (uint256 i; i < len;) {
+            address target = targets[i];
+            bytes32[] memory keys = $.withdrawKeysByTarget[target].values();
+            uint256 keyLen = keys.length;
+            for (uint256 j; j < keyLen;) {
+                bytes32 key = keys[j];
+                if (!VaultAdapter.tryIsClaimed(target, key)) {
+                    uint256 amt = $.requestedAssetsByKey[target][key];
+                    bool ok = VaultAdapter.tryIsClaimable(target, key);
+                    if (ok) claimable += amt;
+                    else pendingRequested += amt;
+                }
+                unchecked {
+                    ++j;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           INTERNAL HELPERS
+    //////////////////////////////////////////////////////////////*/
+
+    function _addAllocatedTarget(address target) internal {
+        _getAllocationStorage().allocatedTargets.add(target);
+    }
+
+    function _maybePruneAllocated(address target) internal {
+        if (VaultAdapter.shareBalanceOf(target, address(this)) == 0) _pruneAllocated(target);
+    }
+
+    function _pruneAllocated(address target) internal {
+        _getAllocationStorage().allocatedTargets.remove(target);
+    }
+
+    function _addWithdrawKey(address target, bytes32 key, uint256 pending) internal {
+        if (key != bytes32(0) && pending > 0) {
+            AllocationStorage storage $ = _getAllocationStorage();
+            $.claimableTargets.add(target);
+            $.withdrawKeysByTarget[target].add(key);
+            if (pending > 0) $.requestedAssetsByKey[target][key] = pending;
+        }
+    }
+
+    function _removeWithdrawKey(address target, bytes32 key) internal {
+        AllocationStorage storage $ = _getAllocationStorage();
+        $.withdrawKeysByTarget[target].remove(key);
+        delete $.requestedAssetsByKey[target][key];
+    }
+
+    /// @dev Calculates the exit cost against raw assets assuming targets have no idle assets.
+    function _previewAllocationExitCostOnRaw(uint256 assets) internal view returns (uint256 cost) {
+        if (assets == 0) return 0;
+
+        address[] memory targets = allocatedTargets();
+        uint256 length = targets.length;
+        if (length == 0) return 0;
+
+        VaultAdapter.insertionSortTargetsByExitCost(targets, length, true);
+
+        for (uint256 i; i < length && assets > 0;) {
+            address target = targets[i];
+            uint256 remainingShares = VaultAdapter.tryPreviewRemainingSharesAfterIdleAssets(target, address(this));
+            if (remainingShares > 0) {
+                uint256 totalAssets = VaultAdapter.convertToAssets(target, remainingShares);
+                uint256 exitCostOnTotal = VaultAdapter.tryExitCostOnTotal(target, totalAssets);
+                uint256 rawAssets = totalAssets - exitCostOnTotal;
+                uint256 rawAssetsToWithdraw = Math.min(rawAssets, assets);
+                uint256 exitCostOnRaw = VaultAdapter.tryExitCostOnRaw(target, rawAssetsToWithdraw);
+
+                unchecked {
+                    cost += exitCostOnRaw;
+                    assets -= rawAssetsToWithdraw;
+                }
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        return cost;
+    }
+
+    /// @dev Calculates the exit cost against total assets assuming targets have idle assets.
+    function _previewAllocationExitCostOnTotal(uint256 assets) internal view returns (uint256 cost) {
+        if (assets == 0) return 0;
+
+        address[] memory targets = allocatedTargets();
+        uint256 length = targets.length;
+        if (length == 0) return 0;
+
+        VaultAdapter.insertionSortTargetsByExitCost(targets, length, true);
+
+        for (uint256 i; i < length && assets > 0;) {
+            address target = targets[i];
+            uint256 remainingShares = VaultAdapter.tryPreviewRemainingSharesAfterIdleAssets(target, address(this));
+            if (remainingShares > 0) {
+                uint256 totalAssets = VaultAdapter.convertToAssets(target, remainingShares);
+                uint256 totalAssetsToWithdraw = Math.min(totalAssets, assets);
+                uint256 exitCostOnTotal = VaultAdapter.tryExitCostOnTotal(target, totalAssetsToWithdraw);
+                unchecked {
+                    cost += exitCostOnTotal;
+                    assets -= totalAssetsToWithdraw;
+                }
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        return cost;
+    }
+
+}

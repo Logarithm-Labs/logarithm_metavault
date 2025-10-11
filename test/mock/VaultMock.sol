@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 contract VaultMock {
+
     function decimals() public pure returns (uint8) {
         return 18;
     }
@@ -17,4 +18,5 @@ contract VaultMock {
     function asset() public pure returns (address) {
         return address(0);
     }
+
 }

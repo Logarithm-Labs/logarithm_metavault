@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
@@ -13,6 +13,7 @@ import {IMetaVault} from "src/interfaces/IMetaVault.sol";
 /// @author Logarithm Labs
 /// @notice Store vaults that are allowed to use as targets in meta vaults
 contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
+
     using EnumerableSet for EnumerableSet.AddressSet;
 
     /*//////////////////////////////////////////////////////////////
@@ -27,12 +28,12 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     // keccak256(abi.encode(uint256(keccak256("logarithm.storage.VaultRegistry")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant VaultRegistryStorageLocation =
+    bytes32 private constant VAULT_REGISTRY_STORAGE_LOCATION =
         0xeb8ff60d146ce7fa958a118578ef28883928c44fc7c24bb6e5d90448571b7b00;
 
     function _getVaultRegistryStorage() private pure returns (VaultRegistryStorage storage $) {
         assembly {
-            $.slot := VaultRegistryStorageLocation
+            $.slot := VAULT_REGISTRY_STORAGE_LOCATION
         }
     }
 
@@ -62,9 +63,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     //////////////////////////////////////////////////////////////*/
 
     modifier noneZeroAddress(address vault) {
-        if (vault == address(0)) {
-            revert WP__ZeroAddress();
-        }
+        if (vault == address(0)) revert WP__ZeroAddress();
         _;
     }
 
@@ -102,9 +101,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     function register(address vault) public noneZeroAddress(vault) {
         _onlyOwnerOrAgent();
         VaultRegistryStorage storage $ = _getVaultRegistryStorage();
-        if ($.registeredVaults.contains(vault)) {
-            revert WP__VaultAlreadyRegistered();
-        }
+        if ($.registeredVaults.contains(vault)) revert WP__VaultAlreadyRegistered();
         $.registeredVaults.add(vault);
         address underlyingAsset = IERC4626(vault).asset();
         string memory name = IERC4626(vault).name();
@@ -177,8 +174,7 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
     //////////////////////////////////////////////////////////////*/
 
     function _onlyOwnerOrAgent() internal view {
-        if (_msgSender() != owner() && _msgSender() != agent()) {
-            revert WP__NotOwnerOrAgent();
-        }
+        if (_msgSender() != owner() && _msgSender() != agent()) revert WP__NotOwnerOrAgent();
     }
+
 }
