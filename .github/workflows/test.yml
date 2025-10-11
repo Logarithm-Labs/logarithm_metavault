@@ -2,14 +2,16 @@ name: CI
 
 on:
   push:
+    branches: [master]
   pull_request:
+    branches: [master]
   workflow_dispatch:
 
 env:
   FOUNDRY_PROFILE: ci
-  ARBITRUM_ONE_RPC_URL: "https://arb-mainnet.g.alchemy.com/v2/0THPn5xrU18mpUj1mXpN5pLp_45qrsvz"
-  BSC_RPC_URL: "https://bnb-mainnet.g.alchemy.com/v2/0THPn5xrU18mpUj1mXpN5pLp_45qrsvz"
-  BASE_RPC_URL: "https://base-mainnet.g.alchemy.com/v2/0THPn5xrU18mpUj1mXpN5pLp_45qrsvz"
+  ARBITRUM_ONE_RPC_URL: ${{ secrets.ARBITRUM_ONE_RPC_URL }}
+  BSC_RPC_URL: ${{ secrets.BSC_RPC_URL }}
+  BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
 
 jobs:
   check:
