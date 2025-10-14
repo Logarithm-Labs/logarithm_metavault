@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
-import {VaultRegistry} from "src/VaultRegistry.sol";
 import {DeployHelper} from "script/utils/DeployHelper.sol";
+import {VaultRegistry} from "src/VaultRegistry.sol";
 import {VaultMock} from "test/mock/VaultMock.sol";
 
 contract VaultRegistryTest is Test {
+
     VaultRegistry provider;
     address owner = makeAddr("owner");
     address agent = makeAddr("agent");
@@ -100,4 +101,5 @@ contract VaultRegistryTest is Test {
         vm.expectRevert(VaultRegistry.WP__NotOwnerOrAgent.selector);
         provider.register(address(vaultMock2));
     }
+
 }
