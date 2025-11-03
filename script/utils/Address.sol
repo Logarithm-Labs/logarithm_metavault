@@ -4,9 +4,9 @@ pragma solidity ^0.8.0;
 library BaseAddress {
 
     address public constant VAULT_REGISTRY = 0x8adf8f2E67e3fc7D69eee6cB2E9BA8c812848Bb1;
-    address public constant VAULT_FACTORY = 0xEC75BA21822B95AF6fA0d857bd85CE648210Cb5e;
+    address public constant VAULT_FACTORY = 0x27f2da8dEACE0e3C3833a5b1CDf3138090edEC34;
     address public constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
-    address public constant META_VAULT = 0x52c88801b8B9159620a0d689f4cE8e9f723Ea995;
+    address public constant META_VAULT = 0xEa98fD8d0e4515FE5989Ebe2B666264D25d1021C;
 
 }
 

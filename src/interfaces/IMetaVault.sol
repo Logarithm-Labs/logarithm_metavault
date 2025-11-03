@@ -13,4 +13,6 @@ interface IMetaVault {
         external;
     function shutdown() external;
 
+    function updateSecurityManager(address newSecurityManager) external;
+
 }

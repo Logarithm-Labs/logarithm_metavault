@@ -1,9 +1,9 @@
 {
-  "lib/managed_basis": {
-    "rev": "3b0bd33af145fc2c2d8f3d2e316e496b1d8518a7"
-  },
   "lib/forge-std": {
     "rev": "77041d2ce690e692d6e03cc812b57d1ddaa4d505"
+  },
+  "lib/managed_basis": {
+    "rev": "3b0bd33af145fc2c2d8f3d2e316e496b1d8518a7"
   },
   "lib/openzeppelin-contracts-upgradeable": {
     "rev": "60b305a8f3ff0c7688f02ac470417b6bbf1c4d27"
