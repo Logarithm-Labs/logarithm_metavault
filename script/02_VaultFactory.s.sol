@@ -8,7 +8,7 @@ import {ArbitrumAddress, BaseAddress} from "./utils/Address.sol";
 import {Script} from "forge-std/Script.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
-address constant OWNER = 0x2aDF216832582B2826C25914A4a7b565AEBb180D;
+address constant OWNER = 0xd1DD21D53eC43C8FE378E51029Aa3F380b229c98;
 address constant CURATOR = 0xF600833BDB1150442B4d355d52653B3896140827;
 
 contract DeployVaultFactoryBase is Script {
@@ -30,9 +30,9 @@ contract DeployVaultFactoryBase is Script {
 contract UpgradeMetaVaultBase is Script {
 
     function run() public {
-        uint256 privateKey = vm.envUint("PRIVATE_KEY");
+        // uint256 privateKey = vm.envUint("PRIVATE_KEY");
         vm.createSelectFork("base");
-        vm.startBroadcast(privateKey);
+        vm.startBroadcast( /* privateKey */ );
         VaultFactory factory = VaultFactory(BaseAddress.VAULT_FACTORY);
         factory.upgradeTo(address(new MetaVault()));
         vm.stopBroadcast();
