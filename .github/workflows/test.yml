@@ -8,7 +8,6 @@ on:
   workflow_dispatch:
 
 env:
-  FOUNDRY_PROFILE: ci
   ARBITRUM_ONE_RPC_URL: ${{ secrets.ARBITRUM_ONE_RPC_URL }}
   BSC_RPC_URL: ${{ secrets.BSC_RPC_URL }}
   BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
