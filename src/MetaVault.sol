@@ -4,6 +4,8 @@ pragma solidity ^0.8.0;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC4626Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {NoncesUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/NoncesUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -21,7 +23,7 @@ import {VaultAdapter} from "./library/VaultAdapter.sol";
 /// @notice Vault implementation that is used by vault factory
 /// @dev This smart contract is for allocating/deallocating assets to/from the vaults
 /// @dev For the target vaults, they are LogarithmVaults (Async-one) and standard ERC4626 vaults
-contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, NoncesUpgradeable {
+contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, NoncesUpgradeable, PausableUpgradeable {
 
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
@@ -49,6 +51,7 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         uint256 cumulativeWithdrawnAssets;
         mapping(bytes32 withdrawKey => WithdrawRequest) withdrawRequests;
         bool shutdown;
+        address securityManager;
     }
 
     // keccak256(abi.encode(uint256(keccak256("logarithm.storage.MetaVault")) - 1)) & ~bytes32(uint256(0xff))
@@ -81,6 +84,9 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     /// @dev Emitted when the vault is shutdown.
     event Shutdown();
 
+    /// @dev Emitted when the security manager is updated.
+    event SecurityManagerUpdated(address indexed caller, address indexed newSecurityManager);
+
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
@@ -95,6 +101,20 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     error MV__ExceededMaxRequestRedeem(address owner, uint256 shares, uint256 max);
     error MV__ZeroShares();
     error MV__ExceededMinAssetsToReceive(uint256 minAssetsToReceive, uint256 assets);
+
+    /*//////////////////////////////////////////////////////////////
+                                MODIFIERS
+    //////////////////////////////////////////////////////////////*/
+
+    modifier onlyRegistry() {
+        _requireRegistry(_msgSender());
+        _;
+    }
+
+    modifier onlySecurityManager() {
+        _requireSecurityManager(_msgSender());
+        _;
+    }
 
     /*//////////////////////////////////////////////////////////////
                              INITIALIZATION
@@ -119,13 +139,24 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         $.vaultRegistry = vaultRegistry_;
     }
 
+    function _requireRegistry(address caller) internal view {
+        if (caller != vaultRegistry()) revert MV__InvalidCaller();
+    }
+
+    function _requireSecurityManager(address caller) internal view {
+        if (caller != securityManager()) revert MV__InvalidCaller();
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            REGISTRY LOGIC
+    //////////////////////////////////////////////////////////////*/
+
     /// @notice Shutdown the vault when the vault is inactive.
     ///
     /// @dev Only callable by the vault registry
     /// @dev This function is used to prevent any further deposits
     /// @dev Redeem all shares from the logarithm vaults
-    function shutdown() external {
-        if (_msgSender() != vaultRegistry()) revert MV__InvalidCaller();
+    function shutdown() external onlyRegistry {
         _getMetaVaultStorage().shutdown = true;
 
         // redeem all shares from the logarithm vaults
@@ -140,6 +171,24 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
             }
         }
         emit Shutdown();
+    }
+
+    function updateSecurityManager(address newSecurityManager) external onlyRegistry {
+        // zero address is acceptable, it means the security manager is disabled
+        _getMetaVaultStorage().securityManager = newSecurityManager;
+        emit SecurityManagerUpdated(_msgSender(), newSecurityManager);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            SECURITY MANAGER LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    function pause() external onlySecurityManager whenNotPaused {
+        _pause();
+    }
+
+    function unpause() external onlySecurityManager whenPaused {
+        _unpause();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -177,6 +226,7 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
 
     /// @inheritdoc ERC4626Upgradeable
     function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal virtual override {
+        _requireNotPaused();
         if (shares == 0) revert MV__ZeroShares();
         super._deposit(caller, receiver, assets, shares);
     }
@@ -193,6 +243,7 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         virtual
         override
     {
+        _requireNotPaused();
         _claimAllocations();
         uint256 idleAssetsAvailable = idleAssets();
         if (idleAssetsAvailable < assets) _withdrawFromTargetIdleAssets(assets - idleAssetsAvailable);
@@ -322,6 +373,7 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         virtual
         returns (bytes32)
     {
+        _requireNotPaused();
         _updateHwmWithdraw(sharesToRequest);
 
         if (caller != owner) _spendAllowance(owner, caller, sharesToRequest);
@@ -400,7 +452,7 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     ///
     /// @param targets Address array of the target vaults that are registered
     /// @param assets Unit value array to be deposited to the target vaults
-    function allocate(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
+    function allocate(address[] calldata targets, uint256[] calldata assets) external onlyOwner whenNotPaused {
         _requireNotShutdown();
         _claimAllocations();
         uint256 _idleAssets = idleAssets();
@@ -413,7 +465,14 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     ///
     /// @param targets Address array of the target vaults that are registered
     /// @param assets Unit value array to be withdrawn from the target vaults
-    function withdrawAllocations(address[] calldata targets, uint256[] calldata assets) external onlyOwner {
+    function withdrawAllocations(
+        address[] calldata targets,
+        uint256[] calldata assets
+    )
+        external
+        onlyOwner
+        whenNotPaused
+    {
         _withdrawAllocationBatch(targets, assets, address(this));
     }
 
@@ -421,7 +480,7 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     ///
     /// @param targets Address array of the target vaults that are registered
     /// @param shares Unit value array to be redeemed from the target vaults
-    function redeemAllocations(address[] calldata targets, uint256[] calldata shares) external onlyOwner {
+    function redeemAllocations(address[] calldata targets, uint256[] calldata shares) external onlyOwner whenNotPaused {
         _redeemAllocationBatch(targets, shares, address(this));
     }
 
@@ -432,7 +491,7 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         _claimAllocations();
     }
 
-    function harvestPerformanceFee() public onlyOwner {
+    function harvestPerformanceFee() public onlyOwner whenNotPaused {
         _harvestPerformanceFeeShares();
     }
 
@@ -444,9 +503,8 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
     function totalAssets() public view override returns (uint256) {
         uint256 assetBalance = IERC20(asset()).balanceOf(address(this));
         (uint256 requestedAssets, uint256 claimableAssets) = allocationPendingAndClaimable();
-        (, uint256 assets) = (assetBalance + allocatedAssets() + requestedAssets + claimableAssets).trySub(
-            assetsToClaim() + reservedAllocationCost()
-        );
+        (, uint256 assets) = (assetBalance + allocatedAssets() + requestedAssets + claimableAssets)
+        .trySub(assetsToClaim() + reservedAllocationCost());
         return assets;
     }
 
@@ -546,4 +604,8 @@ contract MetaVault is Initializable, AllocationManager, CostAwareManagedVault, N
         return $.shutdown;
     }
 
+    function securityManager() public view returns (address) {
+        MetaVaultStorage storage $ = _getMetaVaultStorage();
+        return $.securityManager;
+    }
 }

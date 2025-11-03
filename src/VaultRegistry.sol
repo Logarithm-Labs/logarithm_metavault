@@ -141,6 +141,10 @@ contract VaultRegistry is UUPSUpgradeable, OwnableUpgradeable {
         IMetaVault(metaVault).shutdown();
     }
 
+    function updateSecurityManager(address metaVault, address newSecurityManager) public onlyOwner noneZeroAddress(metaVault) {
+        IMetaVault(metaVault).updateSecurityManager(newSecurityManager);
+    }
+
     /*//////////////////////////////////////////////////////////////
                              PUBLIC VIEWERS
     //////////////////////////////////////////////////////////////*/

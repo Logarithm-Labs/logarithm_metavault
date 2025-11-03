@@ -2256,4 +2256,23 @@ contract MetaVaultTest is Test {
         assertEq(previewedAssets, assets, "Previewed assets should be equal to amount");
     }
 
+    error EnforcedPause();
+
+    function test_pause() public afterAllocated {
+        address securityManager = makeAddr("securityManager");
+        vm.startPrank(owner);
+        registry.updateSecurityManager(address(vault), securityManager);
+        vm.startPrank(securityManager);
+        vault.pause();
+        vm.expectRevert(EnforcedPause.selector);
+        vault.pause();
+        assertTrue(vault.paused(), "Vault should be paused");
+        vm.expectRevert(EnforcedPause.selector);
+        vault.deposit(10, user);
+        vm.expectRevert(EnforcedPause.selector);
+        vault.withdraw(10, user, user);
+        vm.expectRevert(EnforcedPause.selector);
+        vault.requestRedeem(10, user, user, 0);
+    }
+
 }
